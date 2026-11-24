@@ -223,18 +223,48 @@ export function Billing() {
           <div style={css('font-size:12px;font-weight:800;color:var(--ag-muted);letter-spacing:.05em;')}>ADD ITEMS FROM YOUR STORE</div>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search your products…" style={css(inputStyle)} />
           <div style={css('display:flex;flex-direction:column;gap:8px;margin-top:10px;max-height:220px;overflow-y:auto;')}>
-            {filtered.map((p) => (
-              <button type="button" className="agx-con-row" key={p.id} onClick={() => addProduct(p)} style={css('display:flex;align-items:center;gap:10px;padding:8px;border-radius:12px;cursor:pointer;')}>
-                <div style={css(`width:40px;height:40px;flex:none;border-radius:10px;background:${TONES[p.tone]};position:relative;overflow:hidden;`)}>
-                  <ImageSlot src={p.image_url ?? undefined} placeholder={p.title} style={css('position:absolute;inset:0;')} />
-                </div>
-                <div style={css('flex:1;min-width:0;')}>
-                  <div style={css('font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;')}>{p.title}</div>
-                  <div style={css('font-size:12px;color:var(--ag-muted);')}>{fmt(Number(p.price))} · {p.stock} in stock</div>
-                </div>
-                <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';color:var(--ag-crimson);")}>add_circle</span>
-              </button>
-            ))}
+            {filtered.map((p) => {
+              // How many of this product are already on the bill — drives the
+              // row's feedback so a tap visibly does something *here*, instead
+              // of silently changing the cart card further down the page.
+              const qty = cart.find((l) => l.product_id === p.id)?.qty ?? 0;
+              const soldOut = p.stock <= 0 && qty === 0;
+              const atMax = qty >= p.stock;
+              const info = (
+                <>
+                  <div style={css(`width:40px;height:40px;flex:none;border-radius:10px;background:${TONES[p.tone]};position:relative;overflow:hidden;opacity:${soldOut ? 0.5 : 1};`)}>
+                    <ImageSlot src={p.image_url ?? undefined} placeholder={p.title} style={css('position:absolute;inset:0;')} />
+                  </div>
+                  <div style={css('flex:1;min-width:0;text-align:left;')}>
+                    <div style={css('font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;')}>{p.title}</div>
+                    <div style={css(`font-size:12px;color:${qty > 0 ? 'var(--ag-crimson)' : 'var(--ag-muted)'};font-weight:${qty > 0 ? 700 : 400};`)}>
+                      {soldOut ? 'Out of stock' : qty > 0 ? `${qty} in bill · ${p.stock - qty} left` : `${fmt(Number(p.price))} · ${p.stock} in stock`}
+                    </div>
+                  </div>
+                </>
+              );
+              // Already on the bill: show an inline −/+ stepper with the count,
+              // tinted and outlined so the row reads as "selected".
+              if (qty > 0) {
+                return (
+                  <div key={p.id} style={css('display:flex;align-items:center;gap:10px;padding:8px;border-radius:12px;background:var(--ag-surface-2);border:1.5px solid var(--ag-crimson);')}>
+                    {info}
+                    <div style={css('display:flex;align-items:center;gap:6px;flex:none;')}>
+                      <button type="button" aria-label={`Remove one ${p.title}`} onClick={() => setQty(p.id, qty - 1)} style={css('width:40px;height:40px;border-radius:11px;border:1.5px solid var(--ag-border);background:var(--ag-surface);cursor:pointer;font-weight:800;font-size:17px;color:var(--ag-ink);')}>−</button>
+                      <span style={css('font-weight:800;font-size:14px;min-width:18px;text-align:center;color:var(--ag-crimson);')}>{qty}</span>
+                      <button type="button" aria-label={`Add one ${p.title}`} disabled={atMax} onClick={() => addProduct(p)} style={css(`width:40px;height:40px;border-radius:11px;border:1.5px solid ${atMax ? 'var(--ag-border)' : 'var(--ag-crimson)'};background:var(--ag-surface);cursor:${atMax ? 'default' : 'pointer'};opacity:${atMax ? 0.4 : 1};font-weight:800;font-size:17px;color:var(--ag-crimson);`)}>+</button>
+                    </div>
+                  </div>
+                );
+              }
+              // Not yet added: the whole row is one big tap target to add.
+              return (
+                <button type="button" className="agx-con-row" key={p.id} disabled={soldOut} onClick={() => addProduct(p)} style={css(`display:flex;align-items:center;gap:10px;padding:8px;border-radius:12px;cursor:${soldOut ? 'default' : 'pointer'};opacity:${soldOut ? 0.6 : 1};`)}>
+                  {info}
+                  <span aria-hidden="true" style={css(`font-family:'Material Symbols Outlined';color:${soldOut ? 'var(--ag-muted-soft)' : 'var(--ag-crimson)'};`)}>{soldOut ? 'block' : 'add_circle'}</span>
+                </button>
+              );
+            })}
             {productsError ? (
               <LoadError
                 title="Couldn’t load your products"
