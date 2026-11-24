@@ -202,10 +202,22 @@ Deno.serve(async (req: Request) => {
     const [firstName, ...restName] = buyerName.split(/\s+/);
 
     // ── 1. Create the order ─────────────────────────────────────────────────
+    // The order_id we send Shiprocket is a free-text REFERENCE, not a key we
+    // ever read back — the tracking webhook correlates scans by AWB, never by
+    // this. We make it UNIQUE PER ATTEMPT (order number + a short time suffix)
+    // because a re-book after a failed attempt — an earlier KYC refusal, a
+    // dropped AWB — would otherwise reuse the stale Shiprocket order of the same
+    // id. Shiprocket keeps that old order (often auto-cancelled), reports "order
+    // is in cancelled state", and refuses to assign an AWB to it. A fresh id
+    // sidesteps the collision; double-booking a sale is already prevented by our
+    // own existing-shipment check above and the 0063 trigger, not by this id.
+    // The order number stays as the prefix so it is still searchable in their
+    // panel for reconciliation.
+    const srOrderId = `${order.order_number}-${Date.now().toString(36).slice(-6)}`;
     const created = await srFetch<{ order_id: number; shipment_id: number }>(token, '/orders/create/adhoc', {
       method: 'POST',
       body: {
-        order_id: order.order_number,
+        order_id: srOrderId,
         order_date: order.created_at.slice(0, 16).replace('T', ' '),
         pickup_location: shop.shiprocket_pickup_location,
         billing_customer_name: firstName,
