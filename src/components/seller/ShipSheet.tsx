@@ -47,6 +47,12 @@ export type BookPayload = {
   date: string; slotStart: string; slotEnd: string;
   /** The pickup address the parcel is collected from, as confirmed in the sheet. */
   pickup: PickupInfo;
+  /** Per-parcel weight (kg) and box (cm) when the seller overrode the product/
+   *  shop defaults. Undefined = use the defaults server-side. */
+  weightKg?: number;
+  lengthCm?: number;
+  breadthCm?: number;
+  heightCm?: number;
 };
 
 /** One bookable courier in the picker. DTDC (our contracted account) has no
@@ -113,6 +119,23 @@ export function ShipSheet({
   }, [courierOptions]);
   const [pickupDate, setPickupDate] = useState(todayISO());
   const [slotIdx, setSlotIdx] = useState(0);
+  // Shiprocket schedules a pickup DATE, not a two-hour slot, so the slot
+  // selector is hidden when a Shiprocket courier is chosen — showing it would
+  // promise a window the carrier never commits to. DTDC keeps the slot.
+  const showSlot = selected?.provider !== 'shiprocket';
+  // Optional per-parcel weight & box. Blank = use the shop/product defaults
+  // (resolved server-side); filled = declare exactly this, which avoids the
+  // courier's reweigh-and-bill charge. Kept as strings so the inputs can be
+  // left empty, and parsed to a positive number (or undefined) on submit.
+  const [showParcel, setShowParcel] = useState(false);
+  const [pWeight, setPWeight] = useState('');
+  const [pLen, setPLen] = useState('');
+  const [pBre, setPBre] = useState('');
+  const [pHei, setPHei] = useState('');
+  const posNum = (s: string): number | undefined => {
+    const n = Number(s);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  };
   // The pickup address the courier collects from — prefilled from the shop and
   // editable here (an edit is saved back to the shop profile). The shop phone
   // is often blank, which is why the label has printed 0000000000; collecting
@@ -247,12 +270,68 @@ export function ShipSheet({
                   style={css(field)}
                 />
               </div>
-              <div style={css('flex:1;min-width:0;')}>
-                <div style={css(label)}>TIME SLOT</div>
-                <select value={slotIdx} onChange={(e) => setSlotIdx(Number(e.target.value))} style={css(field)}>
-                  {PICKUP_SLOTS.map((s, i) => <option key={i} value={i}>{s.start} – {s.end}</option>)}
-                </select>
+              {/* The time slot is only honoured by DTDC. Shiprocket schedules a
+                  date, so for a Shiprocket courier the slot is hidden and the
+                  date fills the row rather than promising a window. */}
+              {showSlot && (
+                <div style={css('flex:1;min-width:0;')}>
+                  <div style={css(label)}>TIME SLOT</div>
+                  <select value={slotIdx} onChange={(e) => setSlotIdx(Number(e.target.value))} style={css(field)}>
+                    {PICKUP_SLOTS.map((s, i) => <option key={i} value={i}>{s.start} – {s.end}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+            {!showSlot && (
+              <div style={css('font-size:11px;color:var(--ag-muted);margin-top:6px;line-height:1.5;')}>
+                This courier collects on the chosen date — it doesn’t offer a fixed time window.
               </div>
+            )}
+
+            {/* Per-parcel weight & box — optional. Collapsed by default because
+                the defaults from your products are used when it is left closed;
+                opened, the seller declares exactly this parcel, which is what the
+                courier bills against. */}
+            <div style={css('margin-top:14px;')}>
+              <button
+                type="button"
+                onClick={() => setShowParcel((v) => !v)}
+                style={css('display:flex;align-items:center;gap:7px;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;color:var(--ag-crimson);font-weight:800;font-size:12.5px;')}
+              >
+                <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:17px;")}>
+                  {showParcel ? 'expand_less' : 'expand_more'}
+                </span>
+                Weight &amp; size {showParcel ? '' : '· optional'}
+              </button>
+              {showParcel && (
+                <div style={css('margin-top:10px;')}>
+                  <div style={css(label)}>WEIGHT · KG</div>
+                  <input
+                    value={pWeight}
+                    onChange={(e) => setPWeight(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="Leave blank to use your product weights"
+                    style={css(field + 'font-variant-numeric:tabular-nums;')}
+                  />
+                  <div style={css('display:flex;gap:10px;margin-top:10px;')}>
+                    {([['LENGTH', pLen, setPLen], ['BREADTH', pBre, setPBre], ['HEIGHT', pHei, setPHei]] as const).map(([lab, val, set]) => (
+                      <div key={lab} style={css('flex:1;min-width:0;')}>
+                        <div style={css(label)}>{lab} · CM</div>
+                        <input
+                          value={val}
+                          onChange={(e) => set(e.target.value)}
+                          inputMode="decimal"
+                          placeholder="—"
+                          style={css(field + 'font-variant-numeric:tabular-nums;')}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div style={css('font-size:11px;color:var(--ag-muted);margin-top:7px;line-height:1.5;')}>
+                    The courier weighs the parcel and bills the difference, so an accurate weight here saves a surprise charge. Blank fields fall back to your product and shop defaults.
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* The pickup address the courier is sent to. Confirmed on every
@@ -333,6 +412,10 @@ export function ShipSheet({
                       date: pickupDate,
                       slotStart: PICKUP_SLOTS[slotIdx].start, slotEnd: PICKUP_SLOTS[slotIdx].end,
                       pickup: { phone: puPhone.trim(), addressLine: puAddress.trim(), city: puCity.trim(), state: puState.trim(), pincode: puPin.trim() },
+                      weightKg: posNum(pWeight),
+                      lengthCm: posNum(pLen),
+                      breadthCm: posNum(pBre),
+                      heightCm: posNum(pHei),
                     })}
                     style={css(`flex:1.4;height:50px;border:none;border-radius:13px;background:${blocked ? 'var(--ag-surface-2)' : 'linear-gradient(135deg,#D6336C,#B02454)'};color:${blocked ? 'var(--ag-muted)' : '#fff'};font-weight:800;cursor:${blocked ? 'default' : 'pointer'};font-family:inherit;`)}
                   >

@@ -7,25 +7,27 @@
  *
  * THE CHAIN
  *
- *   DTDC  →  Shiprocket  →  Shadowfax  →  the seller types a docket number
+ *   Shiprocket  →  DTDC  →  Shadowfax  →  the seller types a docket number
  *
- * WHY DTDC FIRST (2026-11-14)
- * DTDC is the platform's contracted primary carrier: one account (GL24686),
- * one rate card, one monthly invoice, and a pickup from the boutique's own
- * address on every booking. It goes first because that is the commercial
- * arrangement, not because it covers more — it is a single carrier and will
- * decline some rural lanes, which is exactly why the rest of the chain stays.
- *
- * WHY SHIPROCKET SECOND (changed 2026-11-12)
- * Shadowfax led until a rural pincode came back unserviceable. That is not a
- * Shadowfax defect, it is what every SINGLE carrier looks like — their own site
- * advertises 16,681 of India's ~19,000 pincodes, and the missing ones are
+ * WHY SHIPROCKET FIRST (2026-11-24)
+ * Shiprocket is now the platform's primary carrier for self-serve booking. It
+ * is an AGGREGATOR: it picks among several couriers per pincode, so its
+ * coverage is the union of theirs rather than any one carrier's — their own
+ * site advertises 16,681 of India's ~19,000 pincodes, and the missing ones are
  * disproportionately rural, which is exactly where this marketplace's buyers
- * are. Shiprocket is an AGGREGATOR: it picks among several couriers per
- * pincode, so its coverage is the union of theirs rather than any one carrier's.
- * Swapping one single carrier for another would only have moved which villages
- * failed.
+ * are. Leading with the aggregator means the fewest parcels fall through to a
+ * manual docket. The platform's single prepaid Shiprocket wallet pays the
+ * freight; when it runs dry a booking is refused and the seller drops onto the
+ * manual docket form (it never silently books a second carrier for one sale).
  *
+ * WHY DTDC SECOND (was first until 2026-11-24)
+ * DTDC is the platform's contracted carrier: one account (GL24686), one rate
+ * card, one monthly invoice, and a pickup from the boutique's own address. It
+ * stays in the chain as the first fallback — a single carrier with rural gaps,
+ * which is why it no longer leads, but a real second option that catches lanes
+ * Shiprocket's couriers decline.
+ *
+ * WHY SHADOWFAX THIRD
  * Shadowfax stays as the third rung because a further carrier still catches
  * orders the others decline, and each one it catches is an order the seller
  * does not have to enter a docket number for by hand.
@@ -100,19 +102,65 @@ function isTerminal(status: number, body: Record<string, unknown> | null): boole
   return err.includes('already') || err.includes('closed') || err.includes('cash-on-delivery');
 }
 
+/**
+ * Carriers refuse a parcel in their own API's words — "AUTO_ALLOCATED_HUB_NOT_
+ * FOUND", "no shipment id" — which mean nothing to a seller staring at the ship
+ * sheet. Translate the handful we understand into one plain sentence that says
+ * what is wrong and the two things the SELLER can actually do about it (this
+ * banner is seller-facing: they can't touch the platform's courier account, so
+ * it never names account codes or hub settings — those are the owner's job and
+ * are already in the function logs). Anything we don't recognise falls through
+ * to the carrier's raw reason, so a NEW failure is still shown, never swallowed.
+ */
+function humaniseReason(carrier: string, reason: string): string {
+  const r = reason.toLowerCase();
+
+  // DTDC auto-allocates the pickup hub from the shop's own pincode. "Hub not
+  // found" = DTDC isn't set up to collect from that pincode (or it's wrong).
+  if (carrier === 'dtdc' && (r.includes('auto_allocated_hub_not_found') || r.includes('allocated hub'))) {
+    return 'DTDC can’t arrange a pickup from your shop’s pincode, so it couldn’t book this parcel '
+      + 'automatically. Check that your shop’s pincode is correct in your profile — if it is, DTDC '
+      + 'simply doesn’t collect from your area yet.';
+  }
+  // Shiprocket took the order but returned no shipment — almost always no
+  // verified pickup address on the Shiprocket account, or no serviceable courier.
+  if (carrier === 'shiprocket' && (r.includes('no shipment id') || r.includes('no shipment'))) {
+    return 'Shiprocket couldn’t confirm a pickup for this parcel.';
+  }
+  // Unknown refusal: keep the carrier's own words, but frame them so the banner
+  // still reads as a sentence rather than a dangling API string.
+  return `${carrier.toUpperCase()} couldn’t book this parcel: ${reason}.`;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  const { orderId, carrier, date, slotStart, slotEnd, courierId } = await req.json().catch(() => ({ orderId: null }));
+  const {
+    orderId, carrier, date, slotStart, slotEnd, courierId,
+    weightKg, lengthCm, breadthCm, heightCm,
+  } = await req.json().catch(() => ({ orderId: null }));
   if (!orderId) return json({ error: 'orderId is required' }, 400);
 
   const authHeader = req.headers.get('Authorization') ?? '';
   if (!authHeader.startsWith('Bearer ')) return json({ error: 'Not signed in' }, 401);
 
-  // The pickup slot the seller chose in the ship sheet, forwarded to the carrier
-  // (DTDC schedules the collection for it).
+  // The pickup slot the seller chose in the ship sheet, forwarded to the carrier.
+  // DTDC schedules a two-hour collection window; Shiprocket honours only the
+  // date (it has no slot), which is why the ship sheet hides the slot for it.
   const pickup = (date && slotStart && slotEnd) ? { date, slotStart, slotEnd } : {};
+
+  // The per-parcel weight and box the seller confirmed in the ship sheet, when
+  // they overrode the product/shop defaults. Forwarded so the booking declares
+  // what the seller actually packed rather than a guess — the courier reweighs
+  // at its hub and bills the difference, so a wrong declared weight becomes a
+  // real charge on the platform's wallet. Carriers fall back to
+  // order_parcel_metrics when a field is absent.
+  const parcel: Record<string, unknown> = {};
+  if (weightKg != null) parcel.weightKg = weightKg;
+  if (lengthCm != null) parcel.lengthCm = lengthCm;
+  if (breadthCm != null) parcel.breadthCm = breadthCm;
+  if (heightCm != null) parcel.heightCm = heightCm;
 
   /* ── Seller chose a carrier: honour it, no auto-fallback ─────────────────── */
   // "Seller picks the courier" (2026-11-14). When the ship sheet names a
@@ -127,42 +175,50 @@ Deno.serve(async (req: Request) => {
     // A Shiprocket courier_company_id the seller picked in the ship sheet is
     // forwarded so shiprocket-book assigns that exact courier.
     const extra = carrier === 'shiprocket' && courierId ? { courierId } : {};
-    const r = await tryCarrier(fn, orderId, authHeader, { ...pickup, ...extra, skipFallback: true });
+    const r = await tryCarrier(fn, orderId, authHeader, { ...pickup, ...parcel, ...extra, skipFallback: true });
     if (r.ok) return json({ ...r.body, provider: carrier });
     if (r.body?.booked === true) return json(r.body, r.status);
     if (r.status === 401 || r.status === 403 || r.status === 404) {
       return json(r.body ?? { error: 'Could not book this parcel' }, r.status);
     }
-    const reason = String(r.body?.reason ?? r.body?.error ?? `HTTP ${r.status}`);
+    const rawReason = String(r.body?.reason ?? r.body?.error ?? `HTTP ${r.status}`);
+    const reason = humaniseReason(carrier, rawReason);
     return json({
-      error: `${carrier.toUpperCase()} could not book this parcel: ${reason}. Ship it with your own courier and enter the docket number.`,
+      error: `${reason} You can ship it with your own courier and enter the docket number below.`,
+      // The carrier's own words, kept for the function log and support — never
+      // the thing the seller reads.
+      rawReason,
       canShipManually: true,
     }, 409);
   }
 
   const attempts: Attempt[] = [];
 
-  /* ── 1. DTDC, the contracted carrier ────────────────────────────────────── */
+  /* ── 1. Shiprocket, the primary aggregator (2026-11-24) ─────────────────── */
+  // Leads the chain: it routes across several couriers per pincode, so it is
+  // the single carrier most likely to accept any given lane. The pickup date
+  // and any per-parcel weight/box the seller confirmed are forwarded; an empty
+  // platform wallet surfaces as a decline here and advances to DTDC.
+  const sr = await tryCarrier('shiprocket-book', orderId, authHeader, { ...pickup, ...parcel });
+  if (sr.ok) {
+    return json({ ...sr.body, provider: 'shiprocket', attempts });
+  }
+  if (isTerminal(sr.status, sr.body)) {
+    // Nothing about the next carrier would change this answer.
+    return json(sr.body ?? { error: 'Could not book this parcel' }, sr.status);
+  }
+  attempts.push({ carrier: 'shiprocket', reason: String(sr.body?.error ?? `HTTP ${sr.status}`) });
+
+  /* ── 2. DTDC, the contracted fallback ───────────────────────────────────── */
   // Declines arrive as `{ declined: true, reason }` 409 — not enabled for the
   // shop, an unserviceable lane, a rejected field. A configuration or transport
   // fault arrives as `{ error }` instead; both advance the chain, but the
   // function logs the second kind as a fault so it gets found.
-  const dt = await tryCarrier('dtdc-book', orderId, authHeader, pickup);
+  const dt = await tryCarrier('dtdc-book', orderId, authHeader, { ...pickup, ...parcel });
   if (dt.ok) {
-    return json({ ...dt.body, provider: 'dtdc', attempts });
-  }
-  if (isTerminal(dt.status, dt.body)) {
-    // Nothing about the next carrier would change this answer.
-    return json(dt.body ?? { error: 'Could not book this parcel' }, dt.status);
-  }
-  attempts.push({ carrier: 'dtdc', reason: String(dt.body?.reason ?? dt.body?.error ?? `HTTP ${dt.status}`) });
-
-  /* ── 2. Shiprocket, the aggregator ──────────────────────────────────────── */
-  const sr = await tryCarrier('shiprocket-book', orderId, authHeader);
-  if (sr.ok) {
     return json({
-      ...sr.body,
-      provider: 'shiprocket',
+      ...dt.body,
+      provider: 'dtdc',
       // Only a fallback when something declined before it. The seller is told
       // which courier is coming, not which one said no.
       fellBack: attempts.length > 0,
@@ -170,10 +226,10 @@ Deno.serve(async (req: Request) => {
       attempts,
     });
   }
-  if (isTerminal(sr.status, sr.body)) {
-    return json(sr.body ?? { error: 'Could not book this parcel' }, sr.status);
+  if (isTerminal(dt.status, dt.body)) {
+    return json(dt.body ?? { error: 'Could not book this parcel' }, dt.status);
   }
-  attempts.push({ carrier: 'shiprocket', reason: String(sr.body?.error ?? `HTTP ${sr.status}`) });
+  attempts.push({ carrier: 'dtdc', reason: String(dt.body?.reason ?? dt.body?.error ?? `HTTP ${dt.status}`) });
 
   /* ── 3. Shadowfax ───────────────────────────────────────────────────────── */
   // skipFallback stops it calling shiprocket-book straight back, which would

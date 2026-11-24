@@ -57,8 +57,28 @@ Deno.serve(async (req: Request) => {
     // `courierId` (optional) is a Shiprocket courier_company_id — when the seller
     // picked a specific courier in the ship sheet, assign that one instead of
     // letting Shiprocket auto-choose.
-    const { orderId, courierId } = await req.json().catch(() => ({ orderId: null }));
+    //
+    // `date` (optional, YYYY-MM-DD) is the pickup date the seller chose. Unlike
+    // DTDC, Shiprocket schedules a pickup DATE, not a two-hour slot, so only the
+    // date is honoured — the ship sheet hides the slot selector for Shiprocket.
+    //
+    // `weightKg` / `lengthCm` / `breadthCm` / `heightCm` (optional) are the
+    // per-parcel weight and box the seller confirmed, overriding the
+    // product/shop defaults. Any field left absent falls back to
+    // order_parcel_metrics below. They matter because Shiprocket reweighs the
+    // parcel at its hub and bills the difference to the platform wallet, so a
+    // seller-confirmed weight is money, not decoration.
+    const { orderId, courierId, date, weightKg, lengthCm, breadthCm, heightCm } =
+      await req.json().catch(() => ({ orderId: null }));
     if (!orderId) return json({ error: 'orderId is required' }, 400);
+
+    // A positive, finite number or null. Guards against '', 0, NaN and junk
+    // reaching Shiprocket's validator, which rejects the whole order on a bad
+    // dimension rather than the one field.
+    const posNum = (v: unknown): number | null => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
 
     // ── Who is asking ───────────────────────────────────────────────────────
     // The JWT is verified by Supabase, not by us parsing it. A user-scoped
@@ -153,6 +173,22 @@ Deno.serve(async (req: Request) => {
       return json({ error: metricsErr?.message ?? 'Could not work out the parcel weight' }, 422);
     }
 
+    // The parcel we actually declare: each field is the seller's override when
+    // they gave a valid one, else the resolved default. The weight is "estimated"
+    // (and the seller warned) only when it fell through to the default — a weight
+    // the seller typed is not a guess, so it carries no discrepancy warning.
+    const oWeight = posNum(weightKg);
+    const oLength = posNum(lengthCm);
+    const oBreadth = posNum(breadthCm);
+    const oHeight = posNum(heightCm);
+    const parcel = {
+      weight: oWeight ?? metrics.weight_kg,
+      length: oLength ?? metrics.length_cm,
+      breadth: oBreadth ?? metrics.breadth_cm,
+      height: oHeight ?? metrics.height_cm,
+    };
+    const weightEstimated = oWeight == null && metrics.is_estimated;
+
     const token = await getToken(db);
 
     // Shiprocket rejects an order whose state disagrees with its pincode, and
@@ -196,10 +232,10 @@ Deno.serve(async (req: Request) => {
         })),
         payment_method: 'Prepaid',
         sub_total: order.total,
-        length: metrics.length_cm,
-        breadth: metrics.breadth_cm,
-        height: metrics.height_cm,
-        weight: metrics.weight_kg,
+        length: parcel.length,
+        breadth: parcel.breadth,
+        height: parcel.height,
+        weight: parcel.weight,
       },
     });
 
@@ -226,10 +262,18 @@ Deno.serve(async (req: Request) => {
     const freight = awbRes?.response?.data?.freight_charges ?? null;
 
     if (!awb) {
-      // Their order exists but nothing is carrying it. Surfaced plainly: the
-      // usual cause is an empty wallet or no courier serving that pincode.
+      // Their order exists but nothing is carrying it. Two overwhelmingly common
+      // causes, and the seller can act on neither — the courier wallet is the
+      // platform's (recharged in the Shiprocket panel) and the pincode is the
+      // buyer's — so this is framed as "couldn't collect", and book-parcel falls
+      // through to the next carrier (and ultimately the manual docket) rather
+      // than stranding the order. The specifics are in the function log for the
+      // owner: an empty platform wallet, or no courier serving that pincode.
+      console.warn('shiprocket-book: no AWB assigned', {
+        orderId: order.id, pincode, note: 'likely empty platform wallet or unserviceable pincode',
+      });
       return json({
-        error: 'Shiprocket could not assign a courier. Check the wallet balance and that the destination pincode is serviceable.',
+        error: 'Shiprocket could not arrange a courier for this parcel. It could not be collected right now — you can ship it with your own courier and enter the docket number.',
       }, 502);
     }
 
@@ -247,9 +291,17 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
+      // Honour the seller's pickup date when they chose one. Shiprocket takes a
+      // date (YYYY-MM-DD), not a time slot — a valid ISO date is forwarded as
+      // `pickup_date`, anything else is omitted so their validator schedules the
+      // soonest pickup rather than rejecting a malformed field.
+      const pickupDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
       await srFetch(token, '/courier/generate/pickup', {
         method: 'POST',
-        body: { shipment_id: [created.shipment_id] },
+        body: {
+          shipment_id: [created.shipment_id],
+          ...(pickupDate ? { pickup_date: [pickupDate] } : {}),
+        },
       });
     } catch (_e) {
       // Pickup can be requested later from their panel; some couriers schedule
@@ -270,7 +322,7 @@ Deno.serve(async (req: Request) => {
       sr_courier_name: courierName,
       label_url: labelUrl,
       freight_charge: freight,
-      declared_weight_kg: metrics.weight_kg,
+      declared_weight_kg: parcel.weight,
       created_by: user.id,
     });
     if (shipErr) {
@@ -300,8 +352,8 @@ Deno.serve(async (req: Request) => {
       courierName,
       labelUrl,
       freightCharge: freight,
-      weightKg: metrics.weight_kg,
-      weightEstimated: metrics.is_estimated,
+      weightKg: parcel.weight,
+      weightEstimated,
     });
   } catch (e) {
     if (e instanceof SrError) {

@@ -121,10 +121,10 @@ export function OrderDetail() {
   // "Book & ship" and getting a refusal from the Edge Function instead.
   //
   // Any carrier being on is enough to offer booking. Which one actually
-  // carries the parcel is decided server-side by `book-parcel` — DTDC first
-  // because it is the platform's contracted carrier, then Shiprocket because
-  // it aggregates several couriers and so covers more rural pincodes, then
-  // Shadowfax, then the manual docket form.
+  // carries the parcel is decided server-side by `book-parcel` — Shiprocket
+  // first (2026-11-24) because it aggregates several couriers and so covers the
+  // most pincodes, then DTDC (our contracted carrier), then Shadowfax, then the
+  // manual docket form.
   const { data: courierAvailability } = useAsync(
     async () => {
       if (!boutique) return { dtdc: false, shadowfax: false, shiprocket: false };
@@ -172,14 +172,13 @@ export function OrderDetail() {
     },
     [boutique?.id],
   );
-  // The couriers the seller picks from in the ship sheet: DTDC first (our
-  // contracted account, no live price), then each Shiprocket courier serving
-  // this lane with its live rate + ETA. Shiprocket couriers are only offered
+  // The couriers the seller picks from in the ship sheet. Shiprocket leads now
+  // that it is the platform's primary carrier (2026-11-24) — each Shiprocket
+  // courier serving this lane with its live rate + ETA, cheapest first, so the
+  // default selection is a Shiprocket courier. DTDC (our contracted account, no
+  // live price) follows as the fallback. Shiprocket couriers are only offered
   // when the shop can actually book on Shiprocket (enabled + pickup location).
   const courierOptions: CourierOption[] = [
-    ...(courierAvailability?.dtdc
-      ? [{ key: 'dtdc', provider: 'dtdc' as const, label: 'DTDC', rate: null, days: null }]
-      : []),
     ...(courierAvailability?.shiprocket
       ? (serviceLane?.couriers ?? [])
           .filter((c) => c.courierId && c.name)
@@ -191,6 +190,9 @@ export function OrderDetail() {
             rate: c.rate,
             days: c.days,
           }))
+      : []),
+    ...(courierAvailability?.dtdc
+      ? [{ key: 'dtdc', provider: 'dtdc' as const, label: 'DTDC', rate: null, days: null }]
       : []),
   ];
 
@@ -395,11 +397,15 @@ export function OrderDetail() {
         if (Object.keys(patch).length > 0) await updateBoutique(boutique.id, patch);
       }
 
-      // The seller chose the courier and the pickup slot; book-parcel honours
-      // that choice and schedules the DTDC pickup rather than auto-picking.
+      // The seller chose the courier, the pickup date/slot, and optionally the
+      // parcel weight & box; book-parcel honours that choice and schedules the
+      // pickup rather than auto-picking. Shiprocket uses only the date (it has
+      // no slot); DTDC uses the full slot.
       const booked = await bookParcel(o.id, {
         carrier: payload.carrier, courierId: payload.courierId,
         date: payload.date, slotStart: payload.slotStart, slotEnd: payload.slotEnd,
+        weightKg: payload.weightKg, lengthCm: payload.lengthCm,
+        breadthCm: payload.breadthCm, heightCm: payload.heightCm,
       });
 
       setShipOpen(false);

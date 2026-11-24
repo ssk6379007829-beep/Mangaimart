@@ -452,17 +452,26 @@ export type ParcelBooking = ShipmentBooking & {
  * `canShipManually`, which the ship sheet uses to drop the seller onto the
  * manual docket form rather than leaving them stuck holding a packed parcel.
  */
-/** The seller's courier and pickup-slot choice, forwarded to the chain. */
+/** The seller's courier, pickup-slot and parcel choice, forwarded to the chain. */
 export type BookOptions = {
   /** 'dtdc' | 'shiprocket' | 'shadowfax'. Omitted = auto-pick (legacy). */
   carrier?: string;
   /** A Shiprocket courier_company_id — the specific courier the seller picked.
    *  Only meaningful when carrier is 'shiprocket'. */
   courierId?: string;
-  /** Pickup schedule, YYYY-MM-DD + HH:mm. Honoured by DTDC's pickup API. */
+  /** Pickup schedule, YYYY-MM-DD + HH:mm. DTDC schedules the two-hour slot;
+   *  Shiprocket honours only the date (it has no slot). */
   date?: string;
   slotStart?: string;
   slotEnd?: string;
+  /** Per-parcel weight (kg) and box (cm) the seller confirmed, overriding the
+   *  product/shop defaults. Any left undefined falls back server-side to
+   *  order_parcel_metrics. A seller-typed weight avoids the courier's
+   *  reweigh-and-bill discrepancy charge. */
+  weightKg?: number;
+  lengthCm?: number;
+  breadthCm?: number;
+  heightCm?: number;
 };
 
 export async function bookParcel(orderId: string, opts?: BookOptions): Promise<ParcelBooking> {
