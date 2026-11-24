@@ -122,6 +122,15 @@ function humaniseReason(carrier: string, reason: string): string {
       + 'automatically. Check that your shop’s pincode is correct in your profile — if it is, DTDC '
       + 'simply doesn’t collect from your area yet.';
   }
+  // Shiprocket account-level blocks — KYC not completed, account on hold. The
+  // seller can act on NONE of these: the Shiprocket account is the platform's,
+  // and they have no login for it. The raw text ("complete your KYC") is worse
+  // than opaque, it is misleading — it reads as if the seller must go and do
+  // something. Translate to "not available right now, use another courier". The
+  // real reason is in the function log and the response's rawReason for the owner.
+  if (carrier === 'shiprocket' && (r.includes('kyc') || r.includes('verification is mandated') || r.includes('account is') || r.includes('on hold'))) {
+    return 'This courier isn’t available through MangaiMart right now — please pick another courier in the list above.';
+  }
   // Shiprocket took the order but returned no shipment — almost always no
   // verified pickup address on the Shiprocket account, or no serviceable courier.
   if (carrier === 'shiprocket' && (r.includes('no shipment id') || r.includes('no shipment'))) {

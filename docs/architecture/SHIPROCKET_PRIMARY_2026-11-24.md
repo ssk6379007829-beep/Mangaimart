@@ -64,26 +64,32 @@ booking, not just a fallback.)
 
 1. **Migrations 0065, 0066, 0067 applied** (the Shiprocket schema). Check the
    objects exist — the `schema_migrations` table cannot answer "is it applied?".
-2. **A Shiprocket API User** (Settings → API → Create an API User — a *separate*
+2. **Complete the account's KYC** in the Shiprocket panel (Settings → Company
+   Setup / KYC — PAN + bank, sometimes GST/Aadhaar). **Until KYC is Approved,
+   every booking returns "KYC verification is mandated" and falls through to
+   DTDC.** This is an account-level block, not a per-order one, and it is the
+   most common first-run wall. The seller-facing banner hides the KYC wording
+   (they can't act on the platform account); the raw reason stays in the logs.
+3. **A Shiprocket API User** (Settings → API → Create an API User — a *separate*
    email from the panel login).
-3. **Secrets set:**
+4. **Secrets set:**
    ```bash
    supabase secrets set SHIPROCKET_EMAIL=... SHIPROCKET_PASSWORD=... SHIPROCKET_WEBHOOK_TOKEN=<long random string>
    ```
-4. **Deploy the functions:**
+5. **Deploy the functions:**
    ```bash
    supabase functions deploy book-parcel
    supabase functions deploy shiprocket-book
    # (the tracking webhook is already deployed; redeploy only if it changed)
    ```
-5. **Webhook** in the Shiprocket panel → `https://<project>.supabase.co/functions/v1/tracking`, `x-api-key` = `SHIPROCKET_WEBHOOK_TOKEN`.
-6. **A pickup location per boutique** registered in the Shiprocket panel, its
+6. **Webhook** in the Shiprocket panel → `https://<project>.supabase.co/functions/v1/tracking`, `x-api-key` = `SHIPROCKET_WEBHOOK_TOKEN`.
+7. **A pickup location per boutique** registered in the Shiprocket panel, its
    nickname pasted into **Admin → Deliveries → Shiprocket** with "Let this shop
    book couriers" ticked.
-7. **Recharge the wallet** (prepaid, in the Shiprocket panel). Now that
+8. **Recharge the wallet** (prepaid, in the Shiprocket panel). Now that
    Shiprocket leads, an empty wallet makes every booking fall through to DTDC.
    You check and top this up in the Shiprocket panel — there is no in-app balance.
-8. **Turn on the Shiprocket master switch** on the same admin tab.
+9. **Turn on the Shiprocket master switch** on the same admin tab.
 
 ---
 
