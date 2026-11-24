@@ -1,18 +1,20 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { css } from '@/lib/css';
 import { useGoBack } from '@/hooks/useGoBack';
 import { LoadError } from '@/components/seller/LoadError';
 import { ImageSlot } from '@/components/ui/ImageSlot';
 import { useShop } from '@/state/ShopContext';
+import { useAuth } from '@/auth/AuthContext';
 import { useMyBoutique } from '@/hooks/useMyBoutique';
 import { useAsync } from '@/hooks/useAsync';
 import { fetchProductsByBoutique } from '@/data/products';
 import { createOfflineSale, type OfflineSaleItem, type OfflineSaleResult } from '@/data/offlineSales';
 import { buildWhatsAppLink, buildBillShareCaption } from '@/lib/whatsapp';
-import { elementToPdfFile, downloadBillPdf, openPendingWhatsAppTab } from '@/lib/billImage';
+import { openPendingWhatsAppTab } from '@/lib/billImage';
 import { uploadPrivateFile, signedFileUrl } from '@/lib/privateUpload';
-import { BillReceipt } from '@/components/seller/BillReceipt';
+import { billPdfFile, downloadBillDoc, boutiqueAddressLines, type BillDocData } from '@/lib/billPdf';
+import { BillInvoice } from '@/components/seller/BillInvoice';
 import { TONES, fmt } from '@/data/demo';
 
 type CartLine = OfflineSaleItem & { key: string; stock: number | null };
@@ -29,6 +31,7 @@ export function Billing() {
   const navigate = useNavigate();
   const goBack = useGoBack('/seller/dashboard');
   const { showToast } = useShop();
+  const { session } = useAuth();
   const { boutique } = useMyBoutique();
   const { data: products, error: productsError, reload: reloadProducts } = useAsync(() => (boutique ? fetchProductsByBoutique(boutique.id) : Promise.resolve([])), [boutique?.id]);
 
@@ -42,7 +45,6 @@ export function Billing() {
   const [creating, setCreating] = useState(false);
   const [receipt, setReceipt] = useState<OfflineSaleResult | null>(null);
   const [sharing, setSharing] = useState(false);
-  const receiptRef = useRef<HTMLDivElement>(null);
 
   const filtered = (products ?? []).filter((p) => p.title.toLowerCase().includes(search.trim().toLowerCase()));
 
@@ -133,8 +135,25 @@ export function Billing() {
 
   const billDate = receipt ? new Date(receipt.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
+  // One source of truth for the bill document — drives both the on-screen
+  // preview (BillInvoice) and the generated PDF (billPdf), so what the seller
+  // sees is exactly what the buyer downloads.
+  const billData: BillDocData | null = receipt && boutique ? {
+    boutiqueName: boutique.name ?? 'MangaiMart Boutique',
+    boutiqueAddressLines: boutiqueAddressLines(boutique),
+    boutiquePhone: boutique.phone,
+    billNumber: receipt.order_number,
+    date: billDate,
+    buyerName,
+    buyerPhone,
+    items: cart.map((l) => ({ title: l.title, qty: l.qty, price: l.price })),
+    discount: discountVal,
+    total: receipt.total,
+    paymentMethod,
+  } : null;
+
   const shareBillOnWhatsApp = async () => {
-    if (!receiptRef.current || !receipt || !boutique) return;
+    if (!billData || !receipt || !boutique) return;
     // Must open synchronously, still inside this click's user gesture — see
     // openPendingWhatsAppTab's doc comment (the PDF render + upload below are
     // async, and a window.open() issued after an await is silently popup-blocked).
@@ -142,9 +161,13 @@ export function Billing() {
     setSharing(true);
     try {
       // Generate the bill as a PDF, host it in the private offline-bills bucket,
-      // and mint a 30-day signed link the walk-in buyer can download from.
-      const file = await elementToPdfFile(receiptRef.current, `Bill-${receipt.order_number}.pdf`);
-      const path = await uploadPrivateFile('offline-bills', boutique.id, file, '0116');
+      // and mint a 30-day signed link the walk-in buyer can download from. The
+      // file goes under the seller's own user-id folder — that is exactly what
+      // the bucket's RLS policy checks (migration 0116), so it must match.
+      const uid = session?.user?.id;
+      if (!uid) throw new Error('Your session expired — please sign in again');
+      const file = await billPdfFile(billData, `Bill-${receipt.order_number}.pdf`);
+      const path = await uploadPrivateFile('offline-bills', uid, file, '0116');
       const billUrl = await signedFileUrl('offline-bills', path, BILL_LINK_TTL_SECONDS);
       if (!billUrl) throw new Error('Could not create the bill link — please try again');
 
@@ -169,9 +192,9 @@ export function Billing() {
   };
 
   const downloadPdf = async () => {
-    if (!receiptRef.current || !receipt) return;
+    if (!billData || !receipt) return;
     try {
-      await downloadBillPdf(receiptRef.current, `Bill-${receipt.order_number}.pdf`);
+      await downloadBillDoc(billData, `Bill-${receipt.order_number}.pdf`);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not generate the PDF', 'error');
     }
@@ -188,23 +211,9 @@ export function Billing() {
         </div>
 
         <div style={css('padding:6px 20px 0;display:flex;flex-direction:column;align-items:center;')}>
-          <div style={css('width:100%;max-width:420px;border-radius:18px;overflow:hidden;box-shadow:0 20px 46px -26px rgba(107,20,54,.6);')}>
-            <BillReceipt
-              ref={receiptRef}
-              boutiqueName={boutique?.name ?? 'MangaiMart Boutique'}
-              boutiquePhone={boutique?.phone}
-              billNumber={receipt.order_number}
-              date={billDate}
-              buyerName={buyerName}
-              buyerPhone={buyerPhone}
-              items={cart.map((l) => ({ title: l.title, qty: l.qty, price: l.price }))}
-              discount={discountVal}
-              total={receipt.total}
-              paymentMethod={paymentMethod}
-            />
-          </div>
+          {billData && <BillInvoice data={billData} />}
 
-          <div className="agx-no-print" style={css('display:flex;flex-direction:column;gap:10px;margin-top:16px;width:100%;max-width:420px;')}>
+          <div className="agx-no-print" style={css('display:flex;flex-direction:column;gap:10px;margin-top:16px;width:100%;max-width:440px;')}>
             <button onClick={shareBillOnWhatsApp} disabled={sharing} style={css(`width:100%;height:52px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--ag-good),#1E8A57);color:#fff;font-weight:800;font-size:15px;cursor:${sharing ? 'default' : 'pointer'};opacity:${sharing ? 0.7 : 1};display:flex;align-items:center;justify-content:center;gap:8px;`)}>
               <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:20px;")}>share</span>{sharing ? 'Preparing…' : 'Share Bill on WhatsApp'}
             </button>
