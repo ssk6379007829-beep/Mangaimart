@@ -128,7 +128,7 @@ export function Dashboard() {
   ];
 
   const QUICK = [
-    { label: 'New Bill', sub: 'Create invoice', icon: 'receipt_long', tint: 'var(--ag-surface-2)', ic: 'var(--ag-crimson)', to: '/seller/billing', badge: 0 },
+    { label: 'Offline Sale', sub: 'Walk-in bill', icon: 'point_of_sale', tint: 'var(--ag-surface-2)', ic: 'var(--ag-crimson)', to: '/seller/billing', badge: 0 },
     { label: 'Notifications', sub: 'View alerts', icon: 'notifications', tint: 'var(--ag-gold-bg)', ic: 'var(--ag-gold-text)', to: '/seller/notifications', badge: unread ?? 0 },
     { label: 'Orders', sub: 'Manage orders', icon: 'shopping_bag', tint: 'var(--ag-purple-bg)', ic: 'var(--ag-purple)', to: '/seller/orders', badge: pendingCount },
     { label: 'Add Product', sub: 'List a new piece', icon: 'add_box', tint: 'var(--ag-good-bg)', ic: 'var(--ag-good)', to: '/seller/add-product', badge: 0 },

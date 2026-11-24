@@ -14,14 +14,18 @@ function sellerTabs(unreadMessages: number): TabDef[] {
   return [
   { label: 'Home', icon: 'home', to: '/seller/dashboard', match: ['/seller/dashboard'] },
   { label: 'Products', icon: 'inventory_2', to: '/seller/products', match: ['/seller/products', '/seller/add-product'] },
+  // Counter / walk-in billing as the raised centre orb — the dock's hero slot,
+  // mirroring Inspire on the buyer dock — so a seller can raise an in-person
+  // bill from any screen. It also stays on the dashboard quick-action grid and
+  // under Profile. `point_of_sale` reads as a shop register.
+  //
+  // Profile has deliberately left the dock: it opens from the header avatar's
+  // menu (`renderProfileMenu` below) on every screen, exactly as it does on the
+  // buyer dock, which carries no Profile tab either. Dropping it keeps the dock
+  // at five tabs so the orb sits truly centred.
+  { label: 'Offline Sale', icon: 'point_of_sale', to: '/seller/billing', match: ['/seller/billing'], raised: true },
   { label: 'Orders', icon: 'receipt_long', to: '/seller/orders', match: ['/seller/orders'] },
   { label: 'Messages', icon: 'chat', to: '/seller/messages', match: ['/seller/messages', '/seller/chat'], badge: unreadMessages },
-  {
-    label: 'Profile',
-    icon: 'person',
-    to: '/seller/profile',
-    match: ['/seller/profile', '/seller/earnings', '/seller/analytics', '/seller/boutique', '/seller/settings', '/seller/help', '/seller/customers', '/seller/notifications', '/seller/verification'],
-  },
   ];
 }
 

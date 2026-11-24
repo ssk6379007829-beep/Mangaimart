@@ -77,7 +77,7 @@ export function ProfileHub() {
         { label: 'Reviews', sub: 'Buyer ratings — reply in public', icon: 'reviews', to: '/seller/reviews' },
         { label: 'Earnings & payouts', sub: 'What you have earned', icon: 'payments', to: '/seller/earnings' },
         { label: 'Analytics', sub: 'Trends & performance', icon: 'insights', to: '/seller/analytics' },
-        { label: 'Billing (Offline Sales)', sub: 'Walk-in invoices', icon: 'receipt_long', to: '/seller/billing' },
+        { label: 'Offline Sale', sub: 'Walk-in invoices', icon: 'point_of_sale', to: '/seller/billing' },
       ],
     },
     {
