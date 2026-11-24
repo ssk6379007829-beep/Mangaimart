@@ -6,7 +6,7 @@ import { LoadError } from '@/components/seller/LoadError';
 import { useShop } from '@/state/ShopContext';
 import { TONES, fmt } from '@/data/demo';
 import { useAsync } from '@/hooks/useAsync';
-import { fetchOrder, updateOrderStatus, markOrderPacked } from '@/data/orders';
+import { fetchOrder, updateOrderStatus } from '@/data/orders';
 import type { OrderStatus } from '@/data/types';
 import { toOrderView } from '@/lib/orderView';
 import { useMyBoutique } from '@/hooks/useMyBoutique';
@@ -967,7 +967,11 @@ export function OrderDetail() {
           o.rawStatus === 'pending'
             ? { status: 'accepted' as const, label: 'Accept order', msg: 'Order accepted' }
             : o.rawStatus === 'accepted'
-              ? { status: 'shipped' as const, label: 'Mark shipped', msg: 'Marked as shipped' }
+              // "Ship order" rather than "Mark shipped": it opens the ship
+              // sheet (book a courier or enter a docket), and the old wording
+              // clashed with "Mark packed" one button away — two near-identical
+              // "Mark …" buttons a seller kept mixing up.
+              ? { status: 'shipped' as const, label: 'Ship order', msg: 'Marked as shipped' }
               : o.rawStatus === 'shipped'
                 // A courier-booked parcel is marked delivered by the courier's
                 // own scan, so the seller is NOT offered a manual button for it
@@ -980,26 +984,6 @@ export function OrderDetail() {
 
         return (
           <div style={css('position:sticky;bottom:0;background:var(--ag-bg);padding:12px 20px 16px;')}>
-            {/* Packing isn't a lifecycle status — it sits between accepted and
-                shipped without changing either. It's here so the buyer's
-                "Packed" step finally shows a real time instead of a blank. */}
-            {o.rawStatus === 'accepted' && !row.packed_at && !confirmReject && (
-              <button
-                onClick={async () => {
-                  try {
-                    await markOrderPacked(o.id);
-                    showToast('Marked as packed');
-                    reload();
-                  } catch (e) {
-                    showToast(e instanceof Error ? e.message : 'Could not update this order', 'error');
-                  }
-                }}
-                style={css('width:100%;height:42px;margin-bottom:10px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-crimson);border-radius:12px;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:7px;')}
-              >
-                <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:18px;")}>inventory_2</span>
-                Mark packed
-              </button>
-            )}
             {confirmReject ? (
               <div style={css('background:var(--ag-bad-bg);border:1px solid var(--ag-border);border-radius:14px;padding:13px 15px;')}>
                 <div style={css('font-size:13px;font-weight:700;color:var(--ag-danger-text);line-height:1.5;')}>
