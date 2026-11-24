@@ -10,13 +10,17 @@ import { useAsync } from '@/hooks/useAsync';
 import { fetchProductsByBoutique } from '@/data/products';
 import { createOfflineSale, type OfflineSaleItem, type OfflineSaleResult } from '@/data/offlineSales';
 import { buildWhatsAppLink, buildBillShareCaption } from '@/lib/whatsapp';
-import { shareOrDownloadBillImage, downloadBillPdf, openPendingWhatsAppTab } from '@/lib/billImage';
+import { elementToPdfFile, downloadBillPdf, openPendingWhatsAppTab } from '@/lib/billImage';
+import { uploadPrivateFile, signedFileUrl } from '@/lib/privateUpload';
 import { BillReceipt } from '@/components/seller/BillReceipt';
 import { TONES, fmt } from '@/data/demo';
 
 type CartLine = OfflineSaleItem & { key: string; stock: number | null };
 
 const PAYMENT_METHODS = ['Cash', 'UPI', 'Card', 'Other'];
+// How long the shared bill link stays alive. Matches the "works for 30 days"
+// line in the WhatsApp message (buildBillShareCaption) — keep the two in step.
+const BILL_LINK_TTL_SECONDS = 30 * 24 * 60 * 60;
 const inputStyle = 'width:100%;margin-top:6px;border:1.5px solid var(--ag-border);background:var(--ag-surface);border-radius:13px;padding:0 14px;height:48px;font-size:14px;font-weight:600;';
 const labelStyle = 'font-size:13px;font-weight:700;color:var(--ag-label);';
 const cardStyle = 'background:var(--ag-surface);border-radius:16px;padding:14px;box-shadow:0 10px 26px -22px rgba(107,20,54,.6);';
@@ -129,32 +133,36 @@ export function Billing() {
 
   const billDate = receipt ? new Date(receipt.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
 
-  const shareBillImage = async () => {
-    if (!receiptRef.current || !receipt) return;
+  const shareBillOnWhatsApp = async () => {
+    if (!receiptRef.current || !receipt || !boutique) return;
     // Must open synchronously, still inside this click's user gesture — see
-    // openPendingWhatsAppTab's doc comment for why (a window.open() issued
-    // after the async bill render below gets silently popup-blocked).
+    // openPendingWhatsAppTab's doc comment (the PDF render + upload below are
+    // async, and a window.open() issued after an await is silently popup-blocked).
     const pendingTab = openPendingWhatsAppTab();
     setSharing(true);
     try {
+      // Generate the bill as a PDF, host it in the private offline-bills bucket,
+      // and mint a 30-day signed link the walk-in buyer can download from.
+      const file = await elementToPdfFile(receiptRef.current, `Bill-${receipt.order_number}.pdf`);
+      const path = await uploadPrivateFile('offline-bills', boutique.id, file, '0116');
+      const billUrl = await signedFileUrl('offline-bills', path, BILL_LINK_TTL_SECONDS);
+      if (!billUrl) throw new Error('Could not create the bill link — please try again');
+
       const caption = buildBillShareCaption({
-        boutiqueName: boutique?.name ?? 'MangaiMart Boutique',
-        boutiqueSlug: boutique?.slug,
+        boutiqueName: boutique.name ?? 'MangaiMart Boutique',
+        boutiqueSlug: boutique.slug,
         buyerName,
         billNumber: receipt.order_number,
         total: receipt.total,
+        billUrl,
       });
-      const result = await shareOrDownloadBillImage(receiptRef.current, `Bill-${receipt.order_number}.png`, caption);
-      if (result === 'downloaded') {
-        showToast('Bill image saved — attach it in the WhatsApp chat that just opened');
-        if (pendingTab) pendingTab.location.href = buildWhatsAppLink(buyerPhone, caption);
-      } else {
-        pendingTab?.close();
-        if (result === 'shared') showToast('Bill shared');
-      }
+      const waLink = buildWhatsAppLink(buyerPhone, caption);
+      if (pendingTab) pendingTab.location.href = waLink;
+      else window.location.href = waLink;
+      showToast('Bill link ready — WhatsApp is opening');
     } catch (e) {
       pendingTab?.close();
-      showToast(e instanceof Error ? e.message : 'Could not generate the bill image', 'error');
+      showToast(e instanceof Error ? e.message : 'Could not prepare the bill link', 'error');
     } finally {
       setSharing(false);
     }
@@ -197,7 +205,7 @@ export function Billing() {
           </div>
 
           <div className="agx-no-print" style={css('display:flex;flex-direction:column;gap:10px;margin-top:16px;width:100%;max-width:420px;')}>
-            <button onClick={shareBillImage} disabled={sharing} style={css(`width:100%;height:52px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--ag-good),#1E8A57);color:#fff;font-weight:800;font-size:15px;cursor:${sharing ? 'default' : 'pointer'};opacity:${sharing ? 0.7 : 1};display:flex;align-items:center;justify-content:center;gap:8px;`)}>
+            <button onClick={shareBillOnWhatsApp} disabled={sharing} style={css(`width:100%;height:52px;border:none;border-radius:14px;background:linear-gradient(135deg,var(--ag-good),#1E8A57);color:#fff;font-weight:800;font-size:15px;cursor:${sharing ? 'default' : 'pointer'};opacity:${sharing ? 0.7 : 1};display:flex;align-items:center;justify-content:center;gap:8px;`)}>
               <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:20px;")}>share</span>{sharing ? 'Preparing…' : 'Share Bill on WhatsApp'}
             </button>
             <button onClick={downloadPdf} style={css('width:100%;height:48px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-ink-2);border-radius:14px;font-weight:800;font-size:14px;cursor:pointer;')}>Download PDF</button>

@@ -14,12 +14,21 @@ export async function elementToPngFile(el: HTMLElement, filename: string): Promi
   return new File([blob], filename, { type: 'image/png' });
 }
 
-export async function downloadBillPdf(el: HTMLElement, filename: string): Promise<void> {
+/** Renders the bill card to a single-page PDF and returns it as a File — used
+ *  both to hand the seller a download and to upload a hosted copy the buyer can
+ *  open from a WhatsApp link. */
+export async function elementToPdfFile(el: HTMLElement, filename: string): Promise<File> {
   const canvas = await renderToCanvas(el);
   const { jsPDF } = await import('jspdf');
   const pdf = new jsPDF({ unit: 'px', format: [canvas.width, canvas.height] });
   pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
-  pdf.save(filename);
+  const blob = pdf.output('blob');
+  return new File([blob], filename, { type: 'application/pdf' });
+}
+
+export async function downloadBillPdf(el: HTMLElement, filename: string): Promise<void> {
+  const file = await elementToPdfFile(el, filename);
+  downloadFile(file);
 }
 
 /** Opens a blank tab synchronously, inside the click handler's user gesture,
