@@ -13,6 +13,7 @@ import { createOfflineSale, type OfflineSaleItem, type OfflineSaleResult } from 
 import { buildWhatsAppLink, buildBillShareCaption } from '@/lib/whatsapp';
 import { openPendingWhatsAppTab } from '@/lib/billImage';
 import { uploadPrivateFile, signedFileUrl } from '@/lib/privateUpload';
+import { createBillLink } from '@/data/billLinks';
 import { billPdfFile, downloadBillDoc, boutiqueAddressLines, type BillDocData } from '@/lib/billPdf';
 import { BillInvoice } from '@/components/seller/BillInvoice';
 import { TONES, fmt } from '@/data/demo';
@@ -142,6 +143,7 @@ export function Billing() {
     boutiqueName: boutique.name ?? 'MangaiMart Boutique',
     boutiqueAddressLines: boutiqueAddressLines(boutique),
     boutiquePhone: boutique.phone,
+    boutiqueLogoUrl: boutique.logo_url,
     billNumber: receipt.order_number,
     date: billDate,
     buyerName,
@@ -168,8 +170,27 @@ export function Billing() {
       if (!uid) throw new Error('Your session expired — please sign in again');
       const file = await billPdfFile(billData, `Bill-${receipt.order_number}.pdf`);
       const path = await uploadPrivateFile('offline-bills', uid, file, '0116');
-      const billUrl = await signedFileUrl('offline-bills', path, BILL_LINK_TTL_SECONDS);
-      if (!billUrl) throw new Error('Could not create the bill link — please try again');
+      const signedUrl = await signedFileUrl('offline-bills', path, BILL_LINK_TTL_SECONDS);
+      if (!signedUrl) throw new Error('Could not create the bill link — please try again');
+
+      // A short link (mangaimart.com/r/<code>) the buyer taps instead of the long
+      // signed URL — middleware resolves it (migration 0118). If that migration
+      // isn't applied yet, fall back to the full signed URL so sharing still works.
+      let billUrl = signedUrl;
+      try {
+        const code = await createBillLink({
+          bucket: 'offline-bills',
+          path,
+          signedUrl,
+          orderId: receipt.id,
+          boutiqueId: boutique.id,
+          createdBy: uid,
+          expiresAt: new Date(Date.now() + BILL_LINK_TTL_SECONDS * 1000).toISOString(),
+        });
+        billUrl = `${window.location.origin}/r/${code}`;
+      } catch (e) {
+        console.warn('[billing] short bill link unavailable — using the full link. Apply migration 0118.', e);
+      }
 
       const caption = buildBillShareCaption({
         boutiqueName: boutique.name ?? 'MangaiMart Boutique',

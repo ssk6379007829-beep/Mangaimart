@@ -2714,6 +2714,50 @@ ${items.join("\n")}
 </channel>
 </rss>`;
 }
+/* ────────────────────────────────────────────────────────────────────────────
+ * Offline-bill short links  (/r/<code>)  — migration 0118
+ * ────────────────────────────────────────────────────────────────────────────
+ * A walk-in buyer's WhatsApp bill carries mangaimart.com/r/<code> instead of the
+ * ~200-character Supabase signed URL. The code is resolved through
+ * resolve_bill_link() — a SECURITY DEFINER function anon may call for an EXACT
+ * code only (so the links are unguessable and unenumerable) — and we 302 to the
+ * stored signed URL. Resolved ahead of coming-soon in the handler so a buyer can
+ * always open a bill they were handed, even while the storefront is hidden.
+ */
+function billLinkCode(pathname) {
+  const m = /^\/r\/([a-z0-9]{4,32})$/.exec(pathname);
+  return m ? m[1] : null;
+}
+async function resolveBillLink(code) {
+  const { ok, rows } = await dbTry(`rpc/resolve_bill_link?p_code=${encodeURIComponent(code)}`);
+  if (!ok || !rows.length) return null;
+  const url = rows[0]?.signed_url;
+  return typeof url === "string" && url ? url : null;
+}
+function billLinkGoneHtml(origin) {
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${SITE_NAME} — Bill link expired</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+  :root { color-scheme: light dark; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; text-align:center; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:#FBF6F2; color:#241019; }
+  .wrap { max-width:400px; }
+  img { width:96px; height:auto; margin:0 auto 24px; display:block; }
+  h1 { font-size:22px; margin:0 0 10px; font-weight:800; }
+  p { font-size:14.5px; line-height:1.6; margin:0 0 24px; color:#775D66; }
+  a.cta { display:inline-block; padding:12px 20px; border-radius:999px; text-decoration:none; background:#B02454; color:#fff; font-weight:700; font-size:14px; }
+  @media (prefers-color-scheme: dark){ body{ background:#120A0E; color:#F7ECF0; } p{ color:#A98D99; } a.cta{ background:#E85088; color:#120A0E; } }
+</style></head>
+<body><main class="wrap">
+  <img src="${origin}/mangaimart-logo.png" alt="${SITE_NAME}">
+  <h1>This bill link has expired</h1>
+  <p>Bill links stay active for 30 days. Please ask the shop to share your bill again.</p>
+  <a class="cta" href="${origin}">Visit ${SITE_NAME}</a>
+</main></body></html>`;
+}
+
 export default async function middleware(request) {
   try {
     const url = new URL(request.url);
@@ -2736,6 +2780,23 @@ export default async function middleware(request) {
       return new Response(null, {
         status: 301,
         headers: { location: `${origin}${legacyPath}${url.search}`, "cache-control": "public, max-age=3600" }
+      });
+    }
+    // ── Offline-bill short links (/r/<code>) ────────────────────────────────
+    // Resolved before coming-soon so a buyer can always open a bill they were
+    // given. A hit 302s to the signed PDF URL; a miss/expiry shows a small page.
+    const billCode = billLinkCode(pathname);
+    if (billCode) {
+      const target = await resolveBillLink(billCode);
+      if (target) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: target, "cache-control": "no-store", "x-robots-tag": "noindex" }
+        });
+      }
+      return new Response(billLinkGoneHtml(origin), {
+        status: 404,
+        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex" }
       });
     }
     const preview = isPreviewHost(url);

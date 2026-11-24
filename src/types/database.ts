@@ -796,6 +796,31 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['expenses']['Row']>;
         Relationships: [];
       };
+      // ── Offline-bill short links (migration 0118) ────────────────────────
+      // Maps a short code to a bill PDF's signed URL; middleware resolves
+      // /r/<code> and 302s to `signed_url`.
+      bill_links: {
+        Row: {
+          code: string;
+          bucket: string;
+          path: string;
+          signed_url: string;
+          order_id: string | null;
+          boutique_id: string | null;
+          created_by: string | null;
+          expires_at: string;
+          created_at: string;
+        };
+        Insert: Partial<Database['public']['Tables']['bill_links']['Row']> & {
+          code: string;
+          bucket: string;
+          path: string;
+          signed_url: string;
+          expires_at: string;
+        };
+        Update: Partial<Database['public']['Tables']['bill_links']['Row']>;
+        Relationships: [];
+      };
       // ── Courier tracking (migration 0063) ────────────────────────────────
       // The list sellers pick from when shipping. Admin-managed, same pattern
       // as the catalogue vocabulary.
