@@ -30,3 +30,13 @@ export function pickupAddressIssue(addressLine: string | null | undefined): stri
   if (!/\d/.test(a)) return EXPECTED_PICKUP_ADDRESS;
   return null;
 }
+
+/**
+ * Join the door number, street/area and landmark the forms collect into the one
+ * address line that is stored and sent to the courier. Empty parts drop out, so
+ * a missing landmark leaves no stray comma. This is the only thing persisted —
+ * the split fields exist to GUIDE entry, not to be stored separately.
+ */
+export function joinAddressParts(parts: (string | null | undefined)[]): string {
+  return parts.map((p) => (p ?? '').trim()).filter(Boolean).join(', ');
+}

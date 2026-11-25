@@ -17,7 +17,7 @@ import { FulfilmentCard, fulfilmentToForm, fulfilmentToPatch, validateFulfilment
 import { dispatchLabel, shopFulfilment } from '@/lib/fulfilment';
 import { POLICY_TERMS } from '@/data/company';
 import { registerShiprocketPickup } from '@/data/shipments';
-import { pickupAddressIssue } from '@/lib/shiprocketAddress';
+import { joinAddressParts, pickupAddressIssue } from '@/lib/shiprocketAddress';
 import { CROP, useImageCropper } from '@/components/ui/ImageCropper';
 import { signInWithGoogle, friendlyAuthError, verifySignupOtp, resendSignupOtp } from '@/lib/authMethods';
 import { ConsentCheckbox, ConsentNotice, PolicyLinks, CONSENT_REQUIRED } from '@/components/legal/Consent';
@@ -109,7 +109,7 @@ const UPI_RE = /^[a-zA-Z0-9.\-_]{2,}@[a-zA-Z]{2,}$/;
 type Form = {
   name: string; ownerName: string; description: string; logoUrl: string; coverUrl: string;
   phone: string; whatsapp: string; email: string; instagram: string;
-  addressLine: string; area: string; city: string; district: string; state: string; pincode: string; mapUrl: string;
+  doorNo: string; addressLine: string; area: string; city: string; district: string; state: string; pincode: string; mapUrl: string;
   /** The map pin, when we could get one — see the note on step 3's location block. */
   lat: string; lng: string;
   categories: string[]; gstNumber: string; businessReg: string; yearsInBusiness: string;
@@ -122,7 +122,7 @@ type Form = {
 const EMPTY: Form = {
   name: '', ownerName: '', description: '', logoUrl: '', coverUrl: '',
   phone: '', whatsapp: '', email: '', instagram: '',
-  addressLine: '', area: '', city: '', district: '', state: '', pincode: '', mapUrl: '',
+  doorNo: '', addressLine: '', area: '', city: '', district: '', state: '', pincode: '', mapUrl: '',
   lat: '', lng: '',
   categories: [], gstNumber: '', businessReg: '', yearsInBusiness: '',
   openTime: '10:00', closeTime: '20:00', workingDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
@@ -161,7 +161,7 @@ function validateStep(step: number, f: Form, ifscKnownBad = false): Errors {
     if (!EMAIL_RE.test(f.email.trim())) e.email = 'Enter a valid email address';
   }
   if (step === 3) {
-    if (f.addressLine.trim().length < 5) e.addressLine = 'Enter your shop address';
+    if (joinAddressParts([f.doorNo, f.addressLine]).length < 5) e.addressLine = 'Enter your shop address';
     if (!f.city.trim()) e.city = 'Enter your city or town';
     if (!f.district.trim()) e.district = 'Enter your district';
     if (!f.state.trim()) e.state = 'Enter your state';
@@ -249,7 +249,9 @@ function toPatch(f: Form): BoutiquePatch {
     whatsapp: orNull(f.whatsapp) ?? orNull(f.phone),
     email: orNull(f.email),
     instagram: orNull(f.instagram.replace(/^@/, '')),
-    address_line: f.addressLine.trim(),
+    // The door number and street line are entered separately to guide a
+    // courier-findable address; they are stored as the one `address_line`.
+    address_line: joinAddressParts([f.doorNo, f.addressLine]),
     area: f.area.trim(),
     city: f.city.trim(),
     district: f.district.trim(),
@@ -409,6 +411,10 @@ export function SellerOnboarding() {
           whatsapp: row.whatsapp ?? '',
           email: row.email ?? session.user.email ?? '',
           instagram: row.instagram ?? '',
+          // The stored address is one line; it seeds the street field, with the
+          // door-number field left empty (a returning seller's full address is
+          // preserved, and re-saving just recombines it).
+          doorNo: '',
           addressLine: row.address_line ?? '',
           area: row.area ?? '',
           city: row.city ?? '',
@@ -888,16 +894,19 @@ export function SellerOnboarding() {
 
         {step === 3 && (
           <SectionCard>
-            <TextArea label="Shop address *" value={form.addressLine} onChange={(v) => set('addressLine', v)} placeholder="12/4, Cross Cut Road, Gandhipuram" error={errors.addressLine} />
-            {/* A soft nudge, not a blocker: an address that is fine for the shop
-                may still be too short or number-less for the courier's pickup
-                system. Said here so the seller fixes it now rather than finding
-                out at their first parcel. */}
-            {!errors.addressLine && pickupAddressIssue(form.addressLine) && (
+            {/* Door number and street are entered separately so a courier-
+                findable pickup address is the default, not an afterthought. They
+                are stored as the one `address_line` (see toPatch). */}
+            <Field label="Door / House no. *" value={form.doorNo} onChange={(v) => set('doorNo', v)} placeholder="e.g. No.12 or 12/4" />
+            <TextArea label="Street, road & area *" value={form.addressLine} onChange={(v) => set('addressLine', v)} placeholder="Cross Cut Road, Gandhipuram, near Bus Stand" error={errors.addressLine} />
+            {/* A soft nudge, not a blocker: the courier's pickup system wants a
+                door number and enough detail. Said here so the seller fixes it
+                now rather than finding out at their first parcel. */}
+            {!errors.addressLine && pickupAddressIssue(joinAddressParts([form.doorNo, form.addressLine])) && (
               <div style={css('display:flex;gap:8px;align-items:flex-start;margin-top:-6px;margin-bottom:4px;padding:9px 11px;background:var(--ag-warn-bg);border-radius:10px;')}>
                 <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:16px;color:var(--ag-warn-text);flex:none;")}>local_shipping</span>
                 <div style={css('font-size:11.5px;color:var(--ag-warn-text);font-weight:700;line-height:1.5;')}>
-                  For courier pickups, include a door/house number and keep it at least 10 characters — e.g. “No.12, Cross Cut Road, Gandhipuram”.
+                  For courier pickups, add the door/house number and a bit more detail — together at least 10 characters, e.g. “No.12, Cross Cut Road, Gandhipuram”.
                 </div>
               </div>
             )}
@@ -1215,7 +1224,7 @@ function ReviewStep({
     },
     {
       step: 3, title: 'Shop address',
-      rows: [['Address', dash(form.addressLine)], ['Area', dash(form.area)], ['City / district', `${dash(form.city)} · ${dash(form.district)}`], ['State / pincode', `${dash(form.state)} · ${dash(form.pincode)}`], ['Map location', form.mapUrl.trim() ? (form.lat && form.lng ? 'Pinned' : 'Link added') : '—']],
+      rows: [['Address', dash(joinAddressParts([form.doorNo, form.addressLine]))], ['Area', dash(form.area)], ['City / district', `${dash(form.city)} · ${dash(form.district)}`], ['State / pincode', `${dash(form.state)} · ${dash(form.pincode)}`], ['Map location', form.mapUrl.trim() ? (form.lat && form.lng ? 'Pinned' : 'Link added') : '—']],
     },
     {
       step: 4, title: 'Business',

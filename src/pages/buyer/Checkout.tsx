@@ -6,6 +6,7 @@ import { useCatalog } from '@/state/CatalogContext';
 import { usePageMeta } from '@/lib/pageMeta';
 import { checkServiceability } from '@/data/shipments';
 import { nameOk, phoneOk, pincodeOk } from '@/lib/buyerDetails';
+import { joinAddressParts, pickupAddressIssue } from '@/lib/shiprocketAddress';
 import { fmt } from '@/data/demo';
 import { deliveryEtaLabel, shopFulfilment } from '@/lib/fulfilment';
 
@@ -15,6 +16,21 @@ export function Checkout() {
   const { productById, boutiques } = useCatalog();
   const [touched, setTouched] = useState(false);
   usePageMeta({ title: 'Checkout', description: 'Confirm your delivery details and place your MangaiMart order.' });
+
+  // The delivery address is entered in three guided parts — door/house number,
+  // street & area, and an optional landmark — which combine into the one
+  // `guest.address` string that is stored and sent to the courier. Splitting the
+  // input (not the storage) is what gets a buyer to include a door number, which
+  // is what makes a parcel findable. Existing text (a returning buyer) seeds the
+  // street field so nothing they already typed is lost.
+  const [addrDoor, setAddrDoor] = useState('');
+  const [addrStreet, setAddrStreet] = useState(() => guest.address ?? '');
+  const [addrLandmark, setAddrLandmark] = useState('');
+  useEffect(() => {
+    setGuest({ address: joinAddressParts([addrDoor, addrStreet, addrLandmark]) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addrDoor, addrStreet, addrLandmark]);
+  const addrHint = pickupAddressIssue(guest.address);
 
   // Nothing to check out. Deep-linking (or emptying the bag in another tab) used
   // to leave a full delivery form quoting a ₹0 total with a live "Continue to
@@ -156,10 +172,29 @@ export function Checkout() {
                 We&rsquo;ll send order updates to this number on WhatsApp. Reply STOP any time to opt out.
               </span>
             </label>
-            <label style={css('font-size:12.5px;font-weight:800;color:var(--ag-label);')}>
-              Flat / House no. &amp; area
-              <textarea rows={2} value={guest.address} onChange={(e) => setGuest({ address: e.target.value })} placeholder="House / flat no., street, area" style={css(`display:block;width:100%;margin-top:7px;border:1.5px solid ${errorRing(errors.address)};background:var(--ag-bg);border-radius:14px;padding:12px 15px;font-size:15px;font-weight:600;color:var(--ag-ink);resize:none;line-height:1.5;`)} />
-            </label>
+            <div>
+              <div style={css('display:flex;gap:14px;flex-wrap:wrap;')}>
+                <label style={css('flex:0 0 130px;min-width:110px;font-size:12.5px;font-weight:800;color:var(--ag-label);')}>
+                  Door / House no.
+                  <input value={addrDoor} onChange={(e) => setAddrDoor(e.target.value)} placeholder="e.g. No.12" style={css(`display:block;width:100%;margin-top:7px;border:1.5px solid ${errorRing(errors.address)};background:var(--ag-bg);border-radius:14px;padding:0 15px;height:52px;font-size:15px;font-weight:600;color:var(--ag-ink);box-sizing:border-box;`)} />
+                </label>
+                <label style={css('flex:1;min-width:150px;font-size:12.5px;font-weight:800;color:var(--ag-label);')}>
+                  Street &amp; area
+                  <input value={addrStreet} onChange={(e) => setAddrStreet(e.target.value)} placeholder="Gandhi Street, Gandhipuram" style={css(`display:block;width:100%;margin-top:7px;border:1.5px solid ${errorRing(errors.address)};background:var(--ag-bg);border-radius:14px;padding:0 15px;height:52px;font-size:15px;font-weight:600;color:var(--ag-ink);box-sizing:border-box;`)} />
+                </label>
+              </div>
+              <label style={css('display:block;margin-top:12px;font-size:12.5px;font-weight:800;color:var(--ag-label);')}>
+                Landmark <span style={css('font-weight:600;color:var(--ag-muted);')}>· optional</span>
+                <input value={addrLandmark} onChange={(e) => setAddrLandmark(e.target.value)} placeholder="near Bus Stand" style={css('display:block;width:100%;margin-top:7px;border:1.5px solid var(--ag-border);background:var(--ag-bg);border-radius:14px;padding:0 15px;height:52px;font-size:15px;font-weight:600;color:var(--ag-ink);box-sizing:border-box;')} />
+              </label>
+              {/* A soft nudge only — never blocks Pay. A door number and enough
+                  detail is what makes the parcel findable at delivery. */}
+              {touched && addrHint && (
+                <div style={css('font-size:11.5px;color:var(--ag-warn-text);font-weight:700;line-height:1.5;margin-top:7px;')}>
+                  Add a door/house number and street so the courier can find you — e.g. “No.12, Gandhi Street, Gandhipuram”.
+                </div>
+              )}
+            </div>
             <div style={css('display:flex;gap:14px;flex-wrap:wrap;')}>
               <label style={css('flex:1;min-width:130px;font-size:12.5px;font-weight:800;color:var(--ag-label);')}>
                 City
