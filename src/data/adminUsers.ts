@@ -31,26 +31,68 @@ export interface Paged<T> {
 }
 
 /**
+ * Return a *fresh* access token for an admin call.
+ *
+ * `getSession()` returns whatever is in storage, which after an idle tab can be
+ * an already-expired JWT (access tokens live ~1h) before auto-refresh has fired.
+ * The service-role endpoints then reject it with `401 Invalid admin session` —
+ * the intermittent "Couldn't load users" the admin saw. We refresh proactively
+ * when the token is expired or within 60s of it, so the server always receives a
+ * valid token. `forceRefresh` is used on a retry after a 401.
+ */
+async function getAdminAccessToken(forceRefresh = false): Promise<string> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const session = sessionData.session;
+  if (!session?.access_token) throw new Error('Admin session expired. Please sign in again.');
+
+  // `expires_at` is a unix timestamp in seconds; treat anything within 60s as stale.
+  const expiresSoon =
+    typeof session.expires_at === 'number' && session.expires_at * 1000 - Date.now() < 60_000;
+
+  if (forceRefresh || expiresSoon) {
+    const { data: refreshed, error } = await supabase.auth.refreshSession();
+    if (error || !refreshed.session?.access_token) {
+      throw new Error('Admin session expired. Please sign in again.');
+    }
+    return refreshed.session.access_token;
+  }
+
+  return session.access_token;
+}
+
+/**
+ * POST to an admin endpoint with a fresh admin token. If the server still
+ * rejects the token with a 401 (e.g. it expired in the few hundred ms between
+ * mint and validation), refresh once and retry before surfacing the error.
+ */
+async function adminFetch(path: string, body: Record<string, unknown>): Promise<Response> {
+  const send = (token: string) =>
+    fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+
+  let response = await send(await getAdminAccessToken());
+  if (response.status === 401) {
+    response = await send(await getAdminAccessToken(true));
+  }
+  return response;
+}
+
+/**
  * Load users through the service-role endpoint (bypasses RLS), so the admin list
  * always reflects the whole `profiles` table — never a subset because of a
  * session/is_admin() quirk. A blocked/deleted admin gets a clear error instead
  * of a silent empty list.
  */
 export async function fetchUsers(q: UsersQuery): Promise<Paged<AdminUserRow>> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
-  if (!accessToken) throw new Error('Admin session expired. Please sign in again.');
-
-  const response = await fetch('/api/admin-list-users', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-    body: JSON.stringify({
-      page: q.page,
-      pageSize: q.pageSize,
-      search: q.search ?? '',
-      role: q.role ?? 'all',
-      status: q.status ?? 'all',
-    }),
+  const response = await adminFetch('/api/admin-list-users', {
+    page: q.page,
+    pageSize: q.pageSize,
+    search: q.search ?? '',
+    role: q.role ?? 'all',
+    status: q.status ?? 'all',
   });
 
   const data = await response.json();
@@ -65,15 +107,7 @@ export async function fetchUsers(q: UsersQuery): Promise<Paged<AdminUserRow>> {
  * mail provider key.
  */
 async function adminPost(body: Record<string, unknown>, path: string, failMessage: string) {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
-  if (!accessToken) throw new Error('Admin session expired. Please sign in again.');
-
-  const response = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-    body: JSON.stringify(body),
-  });
+  const response = await adminFetch(path, body);
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || failMessage);
@@ -229,21 +263,7 @@ export interface CreateUserResult {
 }
 
 export async function createUser(input: CreateUserInput): Promise<CreateUserResult> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const accessToken = sessionData.session?.access_token;
-
-  if (!accessToken) {
-    throw new Error('Admin session expired. Please sign in again.');
-  }
-
-  const response = await fetch('/api/admin-create-user', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify(input),
-  });
+  const response = await adminFetch('/api/admin-create-user', input as unknown as Record<string, unknown>);
 
   const data = await response.json();
   if (!response.ok) {
