@@ -122,6 +122,20 @@ export interface BoutiqueRow {
   units_sold?: number;
   orders_count?: number;
 
+  /**
+   * Set by the `boutiques_guard_admin_fields` trigger (migration 0121) when an
+   * already-approved shop edits an identity field (GST / registration /
+   * registered address / map pin) from the "Manage boutique" editor. The shop
+   * stays live and on the storefront; this only badges it for an admin
+   * re-check, who clears the flag. A seller cannot set or clear it.
+   *
+   * Optional on the type because the columns are selected only for the owner or
+   * an admin, and only on a deployment where 0121 has been applied.
+   */
+  pending_review?: boolean;
+  pending_review_at?: string | null;
+  pending_review_fields?: string[] | null;
+
   // Step 1 — boutique information
   owner_name: string;
   // Step 2 — contact
