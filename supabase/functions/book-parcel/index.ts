@@ -205,10 +205,13 @@ Deno.serve(async (req: Request) => {
 
   /* ── 1. Shiprocket, the primary aggregator (2026-11-24) ─────────────────── */
   // Leads the chain: it routes across several couriers per pincode, so it is
-  // the single carrier most likely to accept any given lane. The pickup date
-  // and any per-parcel weight/box the seller confirmed are forwarded; an empty
-  // platform wallet surfaces as a decline here and advances to DTDC.
-  const sr = await tryCarrier('shiprocket-book', orderId, authHeader, { ...pickup, ...parcel });
+  // the single carrier most likely to accept any given lane. The pickup date,
+  // any per-parcel weight/box, and the auto-picked "cheapest fast" courier
+  // (courierId) are forwarded — Shiprocket assigns that courier when it can, and
+  // if it cannot (or the wallet is empty) this declines and advances to DTDC.
+  const sr = await tryCarrier('shiprocket-book', orderId, authHeader, {
+    ...pickup, ...parcel, ...(courierId ? { courierId } : {}),
+  });
   if (sr.ok) {
     return json({ ...sr.body, provider: 'shiprocket', attempts });
   }
