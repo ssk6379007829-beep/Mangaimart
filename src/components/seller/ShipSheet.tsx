@@ -73,6 +73,7 @@ export function ShipSheet({
   canBook = false,
   courierOptions = [],
   pickup,
+  notice,
   onCancel,
   onConfirm,
   onBook,
@@ -81,6 +82,9 @@ export function ShipSheet({
   busy: boolean;
   /** A courier the shop can book on is switched on, and this order is prepaid. */
   canBook?: boolean;
+  /** A heads-up shown in book mode — e.g. the pickup address needs fixing before
+   *  Shiprocket couriers can appear. Never blocks booking by another carrier. */
+  notice?: string | null;
   /** The couriers the seller may pick from, DTDC first then Shiprocket couriers
    *  cheapest-first. Empty falls back to the manual form. */
   courierOptions?: CourierOption[];
@@ -205,6 +209,14 @@ export function ShipSheet({
 
         {mode === 'book' ? (
           <>
+            {notice && (
+              <div style={css('margin-top:14px;display:flex;gap:9px;align-items:flex-start;background:var(--ag-warn-bg);border:1px solid var(--ag-warn-text);border-radius:13px;padding:11px 13px;')}>
+                <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:18px;color:var(--ag-warn-text);flex:none;")}>info</span>
+                <div style={css('font-size:12px;color:var(--ag-warn-text);font-weight:700;line-height:1.5;')}>
+                  {notice} Update it in your shop profile to use Shiprocket — this order can still go by another courier below.
+                </div>
+              </div>
+            )}
             {courierOptions.length > 0 && (
               <div style={css('margin-top:16px;')}>
                 <div style={css(label)}>CHOOSE A COURIER</div>

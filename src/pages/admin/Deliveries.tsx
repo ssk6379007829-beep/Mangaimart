@@ -12,7 +12,7 @@ import {
   fetchStalledShipments, buildTrackingUrl,
   fetchShiprocketShops, saveBoutiqueShiprocket, saveBoutiqueShadowfax,
   fetchPlatformSwitches, savePlatformSwitches,
-  pickupAddressText, registerShiprocketPickup,
+  pickupAddressText,
   type Courier, type DeliveryIssueRow, type StalledShipmentRow, type ShiprocketShopRow,
 } from '@/data/shipments';
 
@@ -66,7 +66,6 @@ export function Deliveries() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<Partial<Courier> | null>(null);
   const [shop, setShop] = useState<ShiprocketShopRow | null>(null);
-  const [registering, setRegistering] = useState(false);
 
   const toggleSwitch = async (key: 'shiprocket_enabled' | 'shadowfax_enabled' | 'dtdc_enabled', on: boolean) => {
     try {
@@ -75,28 +74,6 @@ export function Deliveries() {
       reloadSwitches();
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not save that switch', 'error');
-    }
-  };
-
-  const registerPickup = async () => {
-    if (!shop) return;
-    setRegistering(true);
-    try {
-      const r = await registerShiprocketPickup(shop.id);
-      showToast(
-        r.alreadyRegistered ? 'Already registered' : `Registered as ${r.nickname}`,
-        r.alreadyRegistered ? 'info' : 'success',
-      );
-      // Reflect it in the open drawer so the admin sees the nickname land,
-      // rather than having to close and reopen the row.
-      setShop((s) => (s ? { ...s, shiprocket_pickup_location: r.nickname, shiprocket_pickup_error: null } : s));
-      reloadShops();
-    } catch (e) {
-      const message = e instanceof Error ? e.message : 'Could not register this pickup address';
-      showToast(message, 'error');
-      setShop((s) => (s ? { ...s, shiprocket_pickup_error: message } : s));
-    } finally {
-      setRegistering(false);
     }
   };
 
@@ -518,19 +495,18 @@ export function Deliveries() {
           </div>
         )}
 
-        {/* The automatic path. Approving a shop already does this (0068); the
-            button is for shops approved before it existed, and for retrying a
-            registration that failed on an incomplete address. */}
+        {/* Registration is self-service now (2026-11-25): the seller's own shop
+            registers its pickup at onboarding and as a book-time safety net, so
+            there is no admin "Create pickup" button. This panel is read-only for
+            the nickname — surface the last failure so support can see why a shop
+            is not booking (almost always an address Shiprocket rejected). */}
         {shop && !shop.shiprocket_pickup_location && (
           <div style={css(`border:1.5px solid ${T.accent2};border-radius:12px;padding:13px 14px;margin-bottom:16px;`)}>
-            <div style={css('font-weight:800;font-size:13.5px;margin-bottom:4px;')}>Register it automatically</div>
-            <div style={css(`font-size:12px;color:${T.muted};line-height:1.55;margin-bottom:11px;`)}>
-              Sends this shop’s address to Shiprocket and fills in the nickname below. Shiprocket’s API places the
-              pin from the address text, so check it in their panel afterwards before letting the shop book.
+            <div style={css('font-weight:800;font-size:13.5px;margin-bottom:4px;')}>Not registered yet</div>
+            <div style={css(`font-size:12px;color:${T.muted};line-height:1.55;`)}>
+              This shop registers its own Shiprocket pickup when the seller books a courier. If it is not happening,
+              the shop’s address, pincode or phone usually needs fixing in Settings.
             </div>
-            <GhostButton icon="add_location_alt" tone="primary" onClick={registerPickup} disabled={registering}>
-              {registering ? 'Registering…' : 'Create pickup address'}
-            </GhostButton>
             {shop.shiprocket_pickup_error && (
               <div style={css('font-size:12px;color:var(--ag-danger-text);margin-top:10px;line-height:1.55;font-weight:600;')}>
                 Last attempt: {shop.shiprocket_pickup_error}

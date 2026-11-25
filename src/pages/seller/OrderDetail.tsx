@@ -16,7 +16,7 @@ import { fetchBoutiquePrivate, updateBoutique, type BoutiquePatch } from '@/data
 import {
   bookParcel, cancelPickup, checkServiceability, createShipment, dtdcLabelUrl, fetchCouriers,
   fetchDtdcAvailability, fetchShadowfaxAvailability, fetchShipment, fetchShipmentEvents,
-  fetchShiprocketAvailability, signedLabelUrl,
+  fetchShiprocketAvailability, registerShiprocketPickup, signedLabelUrl,
 } from '@/data/shipments';
 import { formatOrderDateTime, deliveryEstimate } from '@/lib/orderHistory';
 import { useSettings } from '@/data/settings';
@@ -130,13 +130,41 @@ export function OrderDetail() {
   // first (2026-11-24) because it aggregates several couriers and so covers the
   // most pincodes, then DTDC (our contracted carrier), then Shadowfax, then the
   // manual docket form.
+  // When Shiprocket is on but the shop's pickup address won't do, this holds the
+  // plain guidance so the ship sheet can tell the seller how to fix it (the
+  // order still ships via DTDC / a manual docket meanwhile).
+  const [shiprocketAddrNote, setShiprocketAddrNote] = useState<string | null>(null);
   const { data: courierAvailability } = useAsync(
     async () => {
       if (!boutique) return { dtdc: false, shadowfax: false, shiprocket: false };
-      const [dtdc, shadowfax, shiprocket] = await Promise.all([
+      let shiprocket = await fetchShiprocketAvailability(boutique.id).catch(() => false);
+      // Book-time safety net (2026-11-25): no admin registers pickups any more.
+      // If this shop is eligible but has no Shiprocket pickup yet, register it
+      // now so Shiprocket couriers appear in the picker. Guarded to one attempt
+      // per session per shop so a shop whose address Shiprocket rejects is not
+      // re-poked on every order view — the seller fixes the address and it
+      // registers from Settings. Best-effort: a failure just leaves Shiprocket
+      // off, and the booking chain falls back to DTDC / the manual docket.
+      if (!shiprocket) {
+        const key = `sr-pickup-tried:${boutique.id}`;
+        let tried = false;
+        try { tried = sessionStorage.getItem(key) === '1'; } catch { /* private mode */ }
+        if (!tried) {
+          try { sessionStorage.setItem(key, '1'); } catch { /* ignore */ }
+          try {
+            await registerShiprocketPickup(boutique.id);
+            shiprocket = await fetchShiprocketAvailability(boutique.id).catch(() => false);
+            setShiprocketAddrNote(null);
+          } catch (e) {
+            if ((e as { needsAddress?: boolean }).needsAddress) {
+              setShiprocketAddrNote(e instanceof Error ? e.message : null);
+            }
+          }
+        }
+      }
+      const [dtdc, shadowfax] = await Promise.all([
         fetchDtdcAvailability(boutique.id).catch(() => false),
         fetchShadowfaxAvailability(boutique.id).catch(() => false),
-        fetchShiprocketAvailability(boutique.id).catch(() => false),
       ]);
       return { dtdc, shadowfax, shiprocket };
     },
@@ -1150,6 +1178,7 @@ export function OrderDetail() {
           canBook={canBookCourier && !o.isCod && !manualOnly}
           courierOptions={courierOptions}
           pickup={pickupInfo ?? undefined}
+          notice={shiprocketAddrNote}
           onCancel={() => setShipOpen(false)}
           onConfirm={shipOrder}
           onBook={bookOrder}

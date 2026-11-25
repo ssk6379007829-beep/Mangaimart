@@ -16,6 +16,8 @@ import { zoneRatesToForm, zoneRatesToPatch, type ZoneRateForm } from '@/componen
 import { FulfilmentCard, fulfilmentToForm, fulfilmentToPatch, validateFulfilment, type FulfilmentForm } from '@/components/seller/FulfilmentCard';
 import { dispatchLabel, shopFulfilment } from '@/lib/fulfilment';
 import { POLICY_TERMS } from '@/data/company';
+import { registerShiprocketPickup } from '@/data/shipments';
+import { pickupAddressIssue } from '@/lib/shiprocketAddress';
 import { CROP, useImageCropper } from '@/components/ui/ImageCropper';
 import { signInWithGoogle, friendlyAuthError, verifySignupOtp, resendSignupOtp } from '@/lib/authMethods';
 import { ConsentCheckbox, ConsentNotice, PolicyLinks, CONSENT_REQUIRED } from '@/components/legal/Consent';
@@ -661,6 +663,13 @@ export function SellerOnboarding() {
     setBusy(true);
     try {
       await submitBoutiqueForReview(boutique.id, toPatch(form));
+      // Register the Shiprocket pickup now, so the shop can book a courier the
+      // moment it is approved — no admin step (2026-11-25). Fire-and-forget and
+      // never allowed to throw: a courier account being unreachable, or an
+      // address Shiprocket rejects, must not make submission look like it failed.
+      // A bad address simply leaves Shiprocket off; the book-time safety net and
+      // the fallback carriers cover it.
+      void registerShiprocketPickup(boutique.id).catch(() => {});
       navigate('/seller/verification', { replace: true });
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not submit your application', 'error');
@@ -880,6 +889,18 @@ export function SellerOnboarding() {
         {step === 3 && (
           <SectionCard>
             <TextArea label="Shop address *" value={form.addressLine} onChange={(v) => set('addressLine', v)} placeholder="12/4, Cross Cut Road, Gandhipuram" error={errors.addressLine} />
+            {/* A soft nudge, not a blocker: an address that is fine for the shop
+                may still be too short or number-less for the courier's pickup
+                system. Said here so the seller fixes it now rather than finding
+                out at their first parcel. */}
+            {!errors.addressLine && pickupAddressIssue(form.addressLine) && (
+              <div style={css('display:flex;gap:8px;align-items:flex-start;margin-top:-6px;margin-bottom:4px;padding:9px 11px;background:var(--ag-warn-bg);border-radius:10px;')}>
+                <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:16px;color:var(--ag-warn-text);flex:none;")}>local_shipping</span>
+                <div style={css('font-size:11.5px;color:var(--ag-warn-text);font-weight:700;line-height:1.5;')}>
+                  For courier pickups, include a door/house number and keep it at least 10 characters — e.g. “No.12, Cross Cut Road, Gandhipuram”.
+                </div>
+              </div>
+            )}
 
             {/* Pincode leads the block, because everything under it is derived
                 from it. It used to sit last, next to the district, and a seller

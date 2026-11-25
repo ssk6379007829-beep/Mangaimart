@@ -714,13 +714,15 @@ export async function saveBoutiqueShiprocket(
 /**
  * Create this shop's pickup address at Shiprocket and store the nickname.
  *
- * Admin only, enforced in the Edge Function against `profiles.role`. Safe to
- * call twice — a shop that already has a nickname returns `alreadyRegistered`
- * rather than opening a second collection point on the account.
+ * Self-service: the shop's OWNER may call this (an admin too), enforced in the
+ * Edge Function against `boutiques.owner_id` (2026-11-25). Safe to call more than
+ * once — a shop we have already registered returns `alreadyRegistered` rather
+ * than opening a second collection point.
  *
- * Caveat worth repeating at the call site: Shiprocket's API geocodes the text
- * address and accepts no map pin, so the result is only as good as the seller's
- * own address. Check the pin in their panel before letting a shop book.
+ * A thrown error carries `needsAddress: true` when the refusal is about the
+ * address/pincode/phone not meeting Shiprocket's format — the caller shows the
+ * guidance and lets the order fall back to DTDC / a manual docket, rather than
+ * treating it as a hard failure.
  */
 export async function registerShiprocketPickup(
   boutiqueId: string,
@@ -733,16 +735,20 @@ export async function registerShiprocketPickup(
     // supabase-js hides the body behind an opaque "non-2xx" message; every
     // refusal here is written to be read, so dig the real one out.
     let message = error.message;
+    let needsAddress = false;
     const res = (error as { context?: Response }).context;
     if (res && typeof res.json === 'function') {
       try {
         const body = await res.json();
         if (body?.error) message = body.error as string;
+        needsAddress = Boolean(body?.needsAddress);
       } catch {
         /* not JSON — keep the generic message */
       }
     }
-    throw new Error(message);
+    const err = new Error(message) as Error & { needsAddress?: boolean };
+    err.needsAddress = needsAddress;
+    throw err;
   }
 
   if (!data?.ok) throw new Error(data?.error ?? 'Could not register the pickup address');

@@ -7,7 +7,6 @@ import {
   fetchAllBoutiquesAdmin, setBoutiqueStatus, fetchBoutiquePrivate,
   fetchBoutiqueDuplicates, fetchProductCounts, type AdminBoutiqueRow,
 } from '@/data/boutiques';
-import { registerShiprocketPickup } from '@/data/shipments';
 import { BOUTIQUE_STATUS_LABEL, type BoutiquePrivate, type BoutiqueStatus } from '@/data/types';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { resolvePincode } from '@/data/pincodes';
@@ -233,28 +232,9 @@ export function Approvals() {
       showToast(`${b.name} — ${BOUTIQUE_STATUS_LABEL[status].toLowerCase()}`);
       setSelected(null);
       reload();
-
-      /*
-       * Approval is the moment a shop becomes real, so it is also the moment to
-       * give it a collection point at Shiprocket (migration 0068) — rather than
-       * leaving an admin to retype the address into their panel later.
-       *
-       * Deliberately AFTER the approval has been reported and never allowed to
-       * throw: a courier account being unreachable must not make an approval
-       * look like it failed. The shop is approved either way, and the
-       * registration is retryable from Deliveries → Shiprocket.
-       */
-      if (status === 'approved') {
-        void registerShiprocketPickup(b.id)
-          .then((r) => {
-            if (!r.alreadyRegistered) showToast(`Pickup address registered — ${r.nickname}`);
-          })
-          .catch((e) => {
-            // Not silent: the admin needs to know it did not happen, but the
-            // reason belongs in the console where it persists.
-            showToast(`Pickup address not registered: ${e instanceof Error ? e.message : 'failed'}`, 'error');
-          });
-      }
+      // Shiprocket pickup registration is now self-service (2026-11-25): the
+      // seller's own shop registers it at onboarding and as a book-time safety
+      // net, so approval no longer does it — no admin step is involved at all.
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Update failed', 'error');
     }
