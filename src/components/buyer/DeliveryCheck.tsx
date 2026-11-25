@@ -4,6 +4,7 @@ import { fmt } from '@/data/demo';
 import { useShop } from '@/state/ShopContext';
 import { PINCODE_RE } from '@/lib/pincode';
 import { rateForZone, resolveZone, zoneEarnsFreeDelivery, zoneLabel, type ShopPlace, type ZoneRates } from '@/lib/deliveryZone';
+import { fetchDeliveryQuotes, type BoutiqueQuote } from '@/data/deliveryQuote';
 
 /**
  * "Deliver to ______" — what this shop charges to send a parcel to you.
@@ -23,13 +24,18 @@ import { rateForZone, resolveZone, zoneEarnsFreeDelivery, zoneLabel, type ShopPl
  */
 
 export function DeliveryCheck({
-  rates, place, freeDeliveryOver, boutiqueName,
+  rates, place, freeDeliveryOver, boutiqueName, productId, boutiqueId,
 }: {
   rates: ZoneRates;
   /** The shop's own address — what the buyer's is measured against. */
   place: ShopPlace;
   freeDeliveryOver: number;
   boutiqueName?: string;
+  /** This product + its boutique, so the box can quote the real courier rate
+   *  (migration 0120) rather than the seller's flat estimate. Omit to keep the
+   *  flat-rate behaviour. */
+  productId?: string;
+  boutiqueId?: string;
 }) {
   const { deliveryPincode, setDeliveryPincode, buyerPlace } = useShop();
   const [typed, setTyped] = useState(deliveryPincode);
@@ -45,8 +51,41 @@ export function DeliveryCheck({
   const checking = complete && !showing;
 
   const zone = showing ? resolveZone(place, showing) : null;
-  const rate = zone ? rateForZone(rates, zone) : null;
+  const flatRate = zone ? rateForZone(rates, zone) : null;
   const freeHere = zone != null && freeDeliveryOver > 0 && zoneEarnsFreeDelivery(zone);
+
+  // The live courier quote for this one piece (migration 0120). Fetched whenever a
+  // delivery pincode is resolved; while it is loading, and if it degrades or is not
+  // enabled, the flat zone rate above is shown instead — exactly what the cart does.
+  const liveMode = !!productId && !!boutiqueId;
+  const [live, setLive] = useState<BoutiqueQuote | null>(null);
+  const [liveUnserviceable, setLiveUnserviceable] = useState(false);
+  const [quoting, setQuoting] = useState(false);
+
+  useEffect(() => {
+    if (!showing || !liveMode) { setLive(null); setLiveUnserviceable(false); setQuoting(false); return; }
+    let active = true;
+    setQuoting(true);
+    void fetchDeliveryQuotes([{ product_id: productId!, qty: 1 }], showing.pincode)
+      .then((q) => {
+        if (!active) return;
+        setLive(q.quotes[boutiqueId!] ?? null);
+        setLiveUnserviceable(q.unserviceable.has(boutiqueId!));
+      })
+      .catch(() => { if (active) { setLive(null); setLiveUnserviceable(false); } })
+      .finally(() => { if (active) setQuoting(false); });
+    return () => { active = false; };
+  }, [showing, liveMode, productId, boutiqueId]);
+
+  // What to actually show, preferring the live quote. `rate` is null when the
+  // parcel cannot be delivered at all (no flat rate for the zone AND no live
+  // courier), which is the one case that reads as a refusal below.
+  const usingLive = live != null;
+  const rate = usingLive ? live!.shipRupees : flatRate;
+  // Still fetching the live rate for a resolved pincode: show "checking" rather
+  // than flashing the flat estimate and then re-pricing under the buyer.
+  const liveChecking = liveMode && !!showing && quoting && !usingLive && !liveUnserviceable;
+  const undeliverable = liveUnserviceable || (!usingLive && showing != null && flatRate == null && !liveChecking);
 
   const line = 'font-size:12.5px;font-weight:700;margin-top:8px;line-height:1.55;';
 
@@ -84,24 +123,28 @@ export function DeliveryCheck({
 
       {!typed && (
         <div style={css(line + 'color:var(--ag-muted);font-weight:600;')}>
-          Delivery is priced by distance — enter your pincode to see the exact charge.
+          Enter your pincode to see the exact delivery charge.
         </div>
       )}
-      {checking && <div style={css(line + 'color:var(--ag-muted);')}>Checking…</div>}
+      {(checking || liveChecking) && <div style={css(line + 'color:var(--ag-muted);')}>Checking…</div>}
 
-      {showing && rate == null && (
+      {showing && undeliverable && (
         <div style={css(line + 'color:var(--ag-danger-text);')}>
           {boutiqueName ?? 'This boutique'} does not deliver to {showing.district || showing.pincode}.
         </div>
       )}
-      {showing && rate != null && (
+      {showing && !undeliverable && !liveChecking && rate != null && (
         <div style={css(line + 'color:var(--ag-good);')}>
           {rate === 0 ? 'Free delivery' : `Delivery ${fmt(rate)}`}
           <span style={css('color:var(--ag-muted);font-weight:600;')}>
             {' · '}{showing.district ? `${showing.district}, ${showing.state}` : showing.pincode}
-            {zone ? ` · ${zoneLabel(zone, place).toLowerCase()}` : ''}
+            {/* The live quote names the courier; the flat estimate names the
+                distance band it priced from. */}
+            {usingLive
+              ? (live!.courierName ? ` · via ${live!.courierName}` : '')
+              : (zone ? ` · ${zoneLabel(zone, place).toLowerCase()}` : '')}
           </span>
-          {freeHere && rate > 0 && (
+          {freeDeliveryOver > 0 && rate > 0 && (usingLive || freeHere) && (
             <div style={css('color:var(--ag-muted);font-weight:600;font-size:11.5px;margin-top:3px;')}>
               Free on orders from this boutique over {fmt(freeDeliveryOver)}.
             </div>

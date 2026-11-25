@@ -917,6 +917,8 @@ export function ProductDetail() {
             place={shopPlace}
             freeDeliveryOver={boutique?.freeDeliveryOver ?? 0}
             boutiqueName={boutique?.name}
+            productId={ap.id}
+            boutiqueId={boutiqueId}
           />
 
           {/* FEATURE BADGES — the seller's own picks (migration 0054), never a

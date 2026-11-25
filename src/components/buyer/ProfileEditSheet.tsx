@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { css } from '@/lib/css';
 import { useShop } from '@/state/ShopContext';
 import { nameOk, phoneOk, pincodeOk } from '@/lib/buyerDetails';
+import { joinAddressParts, pickupAddressIssue } from '@/lib/shiprocketAddress';
 
 /**
  * Edit the buyer's saved profile — name, mobile, city and delivery address.
@@ -24,10 +25,19 @@ export function ProfileEditSheet({
   const [name, setName] = useState(guest.name);
   const [phone, setPhone] = useState(guest.phone);
   const [city, setCity] = useState(guest.city);
-  const [address, setAddress] = useState(guest.address);
+  // Delivery address is captured in three guided parts — door/house number,
+  // street & area, optional landmark — exactly as checkout does (see
+  // `Checkout.tsx`), so both screens collect it the same way. Only the joined
+  // string is stored (`guest.address`); an existing buyer's saved address seeds
+  // the street field so nothing they already typed is lost.
+  const [addrDoor, setAddrDoor] = useState('');
+  const [addrStreet, setAddrStreet] = useState(guest.address ?? '');
+  const [addrLandmark, setAddrLandmark] = useState('');
   const [pincode, setPincode] = useState(guest.pincode);
   const [touched, setTouched] = useState(false);
 
+  const address = joinAddressParts([addrDoor, addrStreet, addrLandmark]);
+  const addrHint = pickupAddressIssue(address);
   const nameValid = nameOk(name);
   const phoneValid = phoneOk(phone);
   const pincodeValid = !pincode || pincodeOk(pincode);
@@ -92,16 +102,29 @@ export function ProfileEditSheet({
             <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="e.g. Coimbatore" style={inputStyle(true)} />
           </label>
 
-          <label style={labelStyle}>
-            Delivery address
-            <textarea
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Flat / house no, street, area"
-              rows={3}
-              style={css('display:block;width:100%;margin-top:7px;border:1.5px solid var(--ag-border);background:var(--ag-bg);border-radius:14px;padding:12px 15px;font-size:15px;font-weight:600;color:var(--ag-ink);box-sizing:border-box;resize:none;line-height:1.5;font-family:inherit;')}
-            />
-          </label>
+          <div>
+            <div style={css('display:flex;gap:12px;flex-wrap:wrap;')}>
+              <label style={css('flex:0 0 120px;min-width:100px;font-size:12.5px;font-weight:800;color:var(--ag-label);')}>
+                Door / House no.
+                <input value={addrDoor} onChange={(e) => setAddrDoor(e.target.value)} placeholder="e.g. No.12" style={css('display:block;width:100%;margin-top:7px;border:1.5px solid var(--ag-border);background:var(--ag-bg);border-radius:14px;padding:0 15px;height:52px;font-size:15px;font-weight:600;color:var(--ag-ink);box-sizing:border-box;')} />
+              </label>
+              <label style={css('flex:1;min-width:150px;font-size:12.5px;font-weight:800;color:var(--ag-label);')}>
+                Street &amp; area
+                <input value={addrStreet} onChange={(e) => setAddrStreet(e.target.value)} placeholder="Gandhi Street, Gandhipuram" style={css('display:block;width:100%;margin-top:7px;border:1.5px solid var(--ag-border);background:var(--ag-bg);border-radius:14px;padding:0 15px;height:52px;font-size:15px;font-weight:600;color:var(--ag-ink);box-sizing:border-box;')} />
+              </label>
+            </div>
+            <label style={css('display:block;margin-top:12px;font-size:12.5px;font-weight:800;color:var(--ag-label);')}>
+              Landmark <span style={css('font-weight:600;color:var(--ag-muted);')}>· optional</span>
+              <input value={addrLandmark} onChange={(e) => setAddrLandmark(e.target.value)} placeholder="near Bus Stand" style={css('display:block;width:100%;margin-top:7px;border:1.5px solid var(--ag-border);background:var(--ag-bg);border-radius:14px;padding:0 15px;height:52px;font-size:15px;font-weight:600;color:var(--ag-ink);box-sizing:border-box;')} />
+            </label>
+            {/* Same soft nudge as checkout — a door number + street is what makes
+                the parcel findable. Never blocks Save. */}
+            {touched && addrHint && (
+              <div style={css('font-size:11.5px;color:var(--ag-warn-text);font-weight:700;line-height:1.5;margin-top:7px;')}>
+                Add a door/house number and street so the courier can find you — e.g. “No.12, Gandhi Street, Gandhipuram”.
+              </div>
+            )}
+          </div>
 
           <label style={labelStyle}>
             Pincode

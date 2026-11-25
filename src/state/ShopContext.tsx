@@ -10,6 +10,8 @@ import { fetchActiveCoupons, type CouponRow } from '@/data/coupons';
 import { useCatalog } from '@/state/CatalogContext';
 import { useAuth } from '@/auth/AuthContext';
 import { EMPTY_GUEST, readGuest, writeGuest, hasContactDetails } from '@/lib/buyerDetails';
+import { syncAccount } from '@/lib/accountSync';
+import { updateMyProfile, type ProfilePatch } from '@/data/profiles';
 import { addOrders, type PlacedOrder, type PlacedOrderItem } from '@/lib/orderHistory';
 import {
   savePendingPayment,
@@ -762,6 +764,46 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const hasBuyerDetails = useMemo(() => hasContactDetails(guest), [guest]);
 
   /**
+   * Pull the buyer's saved delivery details off their account on sign-in, so the
+   * NEXT order is pre-filled everywhere — a new device, a cleared browser, or
+   * straight after a logout wiped the local copy. `syncAccount` merges: the
+   * account's saved address fills any blank, while anything the buyer typed as a
+   * guest in this session is kept (and migrated up). Runs once per account, and is
+   * fault-tolerant — a DB hiccup leaves what is already on screen untouched.
+   *
+   * Separate from the collections sync above because it is the buyer's identity,
+   * not their bag, and it is the half that makes "save my address for next time"
+   * actually reach checkout without the buyer visiting their Profile first.
+   */
+  const profileSyncedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const uid = session?.user?.id ?? null;
+    // An anonymous session (opening a chat) is not a real account — nothing to
+    // pull, and its id must not be marked as synced or the real sign-in that
+    // follows would be skipped.
+    if (!uid || session?.user?.is_anonymous) return;
+    if (profileSyncedRef.current === uid) return;
+    profileSyncedRef.current = uid;
+    let active = true;
+    void syncAccount(guest)
+      .then((prof) => {
+        if (!active) return;
+        setGuest({
+          name: prof.name || guest.name,
+          phone: prof.phone || guest.phone,
+          city: prof.city || guest.city,
+          address: prof.address || guest.address,
+          pincode: prof.pincode || guest.pincode,
+        });
+      })
+      .catch(() => { /* offline / RLS lag — keep whatever is already filled in */ });
+    return () => { active = false; };
+    // `guest` is read once at sign-in on purpose; re-running on every keystroke
+    // would fight the buyer's typing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id]);
+
+  /**
    * Settles one order payload against the server. Split out of `placeOrder` so
    * the recovery path can replay a stranded payment with the exact cart it was
    * authorised for, rather than whatever happens to be in the bag now.
@@ -868,6 +910,23 @@ export function ShopProvider({ children }: { children: ReactNode }) {
       };
     });
     addOrders(placed);
+
+    // Save the delivery details this order used to the buyer's account, so the
+    // NEXT order is pre-filled — on this device and any other they sign in on.
+    // Only non-empty fields are written, so a half-filled value can never blank a
+    // good one on the profile, and only for a real account (an anonymous chat
+    // session is not one). Best-effort: the order is already placed, so a failed
+    // profile write is swallowed rather than surfaced.
+    const buyerUid = sessionData.session?.user?.id;
+    if (buyerUid && !sessionData.session?.user?.is_anonymous) {
+      const patch: ProfilePatch = {};
+      if (guest.name.trim()) patch.full_name = guest.name.trim();
+      if (guest.phone.trim()) patch.phone = guest.phone.trim();
+      if (guest.city.trim()) patch.city = guest.city.trim();
+      if (guest.address.trim()) patch.address = guest.address.trim();
+      if (guest.pincode.trim()) patch.pincode = guest.pincode.trim();
+      if (Object.keys(patch).length > 0) void updateMyProfile(buyerUid, patch).catch(() => { /* saved locally anyway */ });
+    }
 
     // This order is on record, so its payment is no longer at risk.
     clearPendingPayment();
