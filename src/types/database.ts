@@ -1328,6 +1328,28 @@ export interface Database {
         Args: { p_request_id: string; p_status: string; p_note?: string | null };
         Returns: void;
       };
+      /**
+       * Cancel an order (migration 0119). SECURITY DEFINER: buyer or seller may
+       * cancel a pending/accepted order, seller/admin a shipped one; it restocks
+       * and leaves the order a refund candidate. Raises with a buyer-facing
+       * message on a stage or ownership it refuses.
+       */
+      cancel_order: {
+        Args: { p_order_id: string; p_reason?: string | null };
+        Returns: void;
+      };
+      /** A buyer asks to cancel a SHIPPED order; the boutique then answers it
+       *  (migration 0119). */
+      request_cancellation: {
+        Args: { p_order_id: string; p_note?: string | null };
+        Returns: void;
+      };
+      /** Seller/admin approve or decline a shipped-order cancellation request
+       *  (migration 0119). Approve cancels and restocks. */
+      resolve_cancellation: {
+        Args: { p_order_id: string; p_approve: boolean; p_note?: string | null };
+        Returns: void;
+      };
       settle_boutique_payout: {
         Args: { p_boutique_id: string; p_note?: string | null };
         Returns: {

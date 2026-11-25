@@ -198,7 +198,7 @@ export function Refunds() {
         message={target
           ? target.refunded
             ? `${target.order_number} · this row was marked refunded by hand, with no Razorpay refund behind it. Clearing the flag puts the order back in the workbench and back into the seller's payout.`
-            : `${fmtInr(buyerPaid(target))} goes back to ${target.name} for ${target.order_number}, through Razorpay, now. This cannot be undone from here.`
+            : `${fmtInr(buyerPaid(target))} goes back to ${target.name} for ${target.order_number}, through Razorpay, now.${target.shipping_fee > 0 ? ` This includes ${fmtInr(target.shipping_fee)} delivery — to keep the delivery charge, refund the goods-only amount in the Razorpay dashboard instead.` : ''} This cannot be undone from here.`
           : ''}
         confirmLabel={target?.refunded ? 'Clear flag' : 'Refund now'}
         danger={!target?.refunded}

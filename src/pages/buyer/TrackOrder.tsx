@@ -13,7 +13,7 @@ import { useOrderFeedback } from '@/hooks/useOrderFeedback';
 import { OrderFeedbackSheet } from '@/components/buyer/OrderFeedbackSheet';
 import { ReturnRequestSheet } from '@/components/buyer/ReturnRequestSheet';
 import { fetchReturnForOrder, RETURN_REASON_LABEL, RETURN_STATUS_LABEL } from '@/data/returns';
-import { fetchReceiptExtras } from '@/data/orders';
+import { fetchReceiptExtras, cancelOrder, requestCancellation } from '@/data/orders';
 import { printReceipt } from '@/lib/printReceipt';
 import { COMPANY, CONTACT_LINKS } from '@/data/company';
 
@@ -55,6 +55,12 @@ export function TrackOrder() {
   );
   const [disputing, setDisputing] = useState(false);
   const [disputed, setDisputed] = useState(false);
+  // Cancelling (migration 0119). `confirmCancel` gates the instant pre-dispatch
+  // cancel behind a second tap; `requested` gives immediate feedback after a
+  // shipped-order request, before the refresh brings the persisted status back.
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [requested, setRequested] = useState(false);
   const [showAllScans, setShowAllScans] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [receiptBusy, setReceiptBusy] = useState(false);
@@ -378,6 +384,89 @@ export function TrackOrder() {
             )}
           </div>
         )}
+
+        {/* ---------- Cancel / request cancellation (migration 0119) ---------- */}
+        {!rejected && !delivered && order.rowId && (() => {
+          const shipped = order.status === 'shipped';
+          const reqStatus = requested ? 'requested' : (order.cancelRequestStatus ?? null);
+          const btnGhost = 'flex:none;height:40px;padding:0 16px;border:1.5px solid var(--ag-border);border-radius:12px;background:var(--ag-surface);color:var(--ag-crimson);font-weight:800;font-size:12.5px;cursor:pointer;font-family:inherit;';
+          const doCancel = async () => {
+            if (!order.rowId) return;
+            setCancelBusy(true);
+            try {
+              await cancelOrder(order.rowId);
+              showToast('Order cancelled — your refund will be processed');
+              setConfirmCancel(false);
+              await refresh();
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : 'Could not cancel this order', 'error');
+            } finally { setCancelBusy(false); }
+          };
+          const doRequest = async () => {
+            if (!order.rowId) return;
+            setCancelBusy(true);
+            try {
+              await requestCancellation(order.rowId);
+              setRequested(true);
+              showToast('Cancellation requested — the boutique will respond');
+              await refresh();
+            } catch (e) {
+              showToast(e instanceof Error ? e.message : 'Could not request a cancellation', 'error');
+            } finally { setCancelBusy(false); }
+          };
+          return (
+            <div style={css('margin-top:16px;padding:16px;background:var(--ag-surface-2);border:1px solid var(--ag-border);border-radius:18px;')}>
+              {!shipped ? (
+                confirmCancel ? (
+                  <div>
+                    <div style={css('font-size:13.5px;font-weight:800;')}>Cancel this order?</div>
+                    <div style={css('font-size:12.5px;color:var(--ag-muted);line-height:1.5;margin-top:3px;')}>
+                      It hasn’t shipped yet, so we’ll cancel it and refund the full amount to your original payment method.
+                    </div>
+                    <div style={css('display:flex;gap:10px;margin-top:12px;')}>
+                      <button disabled={cancelBusy} onClick={() => setConfirmCancel(false)} style={css('flex:1;height:44px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-ink-2);border-radius:12px;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;')}>Keep order</button>
+                      <button disabled={cancelBusy} onClick={doCancel} style={css(`flex:1;height:44px;border:none;background:#C0455E;color:#fff;border-radius:12px;font-weight:800;font-size:13px;cursor:${cancelBusy ? 'wait' : 'pointer'};font-family:inherit;opacity:${cancelBusy ? 0.7 : 1};`)}>{cancelBusy ? 'Cancelling…' : 'Cancel order'}</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={css('display:flex;gap:12px;align-items:center;')}>
+                    <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';color:var(--ag-muted);font-size:22px;flex:none;")}>cancel</span>
+                    <div style={css('flex:1;min-width:0;')}>
+                      <div style={css('font-size:13.5px;font-weight:800;')}>Changed your mind?</div>
+                      <div style={css('font-size:12.5px;color:var(--ag-muted);line-height:1.5;margin-top:2px;')}>You can cancel for a full refund until the boutique ships it.</div>
+                    </div>
+                    <button onClick={() => setConfirmCancel(true)} style={css(btnGhost)}>Cancel order</button>
+                  </div>
+                )
+              ) : reqStatus === 'requested' ? (
+                <div style={css('display:flex;gap:12px;align-items:center;')}>
+                  <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';color:var(--ag-gold-text);font-size:22px;flex:none;")}>hourglass_top</span>
+                  <div style={css('flex:1;min-width:0;')}>
+                    <div style={css('font-size:13.5px;font-weight:800;')}>Cancellation requested</div>
+                    <div style={css('font-size:12.5px;color:var(--ag-muted);line-height:1.5;margin-top:2px;')}>The boutique is reviewing it. If they can stop the parcel, you’ll be refunded in full.</div>
+                  </div>
+                </div>
+              ) : reqStatus === 'declined' ? (
+                <div style={css('display:flex;gap:12px;align-items:center;')}>
+                  <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';color:var(--ag-muted);font-size:22px;flex:none;")}>info</span>
+                  <div style={css('flex:1;min-width:0;')}>
+                    <div style={css('font-size:13.5px;font-weight:800;')}>Couldn’t be cancelled</div>
+                    <div style={css('font-size:12.5px;color:var(--ag-muted);line-height:1.5;margin-top:2px;')}>The parcel was already on its way, so it couldn’t be stopped. You can request a return once it arrives.</div>
+                  </div>
+                </div>
+              ) : (
+                <div style={css('display:flex;gap:12px;align-items:center;')}>
+                  <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';color:var(--ag-muted);font-size:22px;flex:none;")}>cancel</span>
+                  <div style={css('flex:1;min-width:0;')}>
+                    <div style={css('font-size:13.5px;font-weight:800;')}>Need to cancel?</div>
+                    <div style={css('font-size:12.5px;color:var(--ag-muted);line-height:1.5;margin-top:2px;')}>It’s already shipped, so we’ll ask the boutique to try to stop the parcel.</div>
+                  </div>
+                  <button disabled={cancelBusy} onClick={doRequest} style={css(btnGhost + (cancelBusy ? 'opacity:0.7;cursor:wait;' : ''))}>{cancelBusy ? 'Sending…' : 'Request cancellation'}</button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ---------- Cancelled notice ---------- */}
         {rejected && (

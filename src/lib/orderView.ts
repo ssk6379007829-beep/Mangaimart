@@ -55,6 +55,10 @@ export type OrderView = {
   grandTotal: number;
   paymentStatus: NonNullable<OrderWithDetails['payment_status']>;
   cancelReason: string | null;
+  /** Migration 0119. A buyer's cancellation request on a shipped order. Null
+   *  when none is open (or the migration is not applied). */
+  cancelRequestStatus: 'requested' | 'approved' | 'declined' | null;
+  cancelRequestNote: string | null;
 };
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -117,5 +121,7 @@ export function toOrderView(o: OrderWithDetails, i = 0): OrderView {
     grandTotal,
     paymentStatus,
     cancelReason: o.cancel_reason ?? null,
+    cancelRequestStatus: o.cancel_request_status ?? null,
+    cancelRequestNote: o.cancel_request_note ?? null,
   };
 }

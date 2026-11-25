@@ -63,6 +63,9 @@ export type PlacedOrder = {
   outForDeliveryAt?: string | null;
   /** The buyer reported it never arrived; the seller's payout is frozen. */
   deliveryDisputed?: boolean;
+  /** Migration 0119 — a buyer's cancellation request on a shipped order, which
+   *  the boutique approves or declines. Null when none is open. */
+  cancelRequestStatus?: 'requested' | 'approved' | 'declined' | null;
 };
 
 let orderState: PlacedOrder[] = [];
@@ -166,6 +169,7 @@ export type BuyerDbOrder = {
   packed_at?: string | null;
   out_for_delivery_at?: string | null;
   delivery_disputed?: boolean;
+  cancel_request_status?: 'requested' | 'approved' | 'declined' | null;
   payment_method?: string | null;
   payment_status?: PaymentStatus;
   cod_fee?: number;
@@ -206,6 +210,7 @@ export function fromBuyerOrder(o: BuyerDbOrder): PlacedOrder {
     packedAt: o.packed_at ?? null,
     outForDeliveryAt: o.out_for_delivery_at ?? null,
     deliveryDisputed: o.delivery_disputed ?? false,
+    cancelRequestStatus: o.cancel_request_status ?? null,
     // `pid` is what the order screens look the product photo up by, so it has to
     // survive the round-trip through the server copy — without it every line
     // falls back to the empty placeholder tile.

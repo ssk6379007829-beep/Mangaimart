@@ -6,7 +6,7 @@ import { LoadError } from '@/components/seller/LoadError';
 import { useShop } from '@/state/ShopContext';
 import { TONES, fmt } from '@/data/demo';
 import { useAsync } from '@/hooks/useAsync';
-import { fetchOrder, updateOrderStatus } from '@/data/orders';
+import { fetchOrder, updateOrderStatus, cancelOrder, resolveCancellation } from '@/data/orders';
 import type { OrderStatus } from '@/data/types';
 import { toOrderView } from '@/lib/orderView';
 import { useMyBoutique } from '@/hooks/useMyBoutique';
@@ -72,6 +72,11 @@ export function OrderDetail() {
   // undoes a real consignment at the courier, so it is confirmed first).
   const [confirmCancelPickup, setConfirmCancelPickup] = useState(false);
   const [cancellingPickup, setCancellingPickup] = useState(false);
+  // Cancelling the whole order (migration 0119) — distinct from "cancel pickup"
+  // above, which only recalls a DTDC parcel so it can be re-booked. This closes
+  // the order, restocks, and leaves it for the admin to refund.
+  const [confirmCancelOrder, setConfirmCancelOrder] = useState(false);
+  const [cancellingOrder, setCancellingOrder] = useState(false);
 
   // Both read separately from the order (see src/data/shipments.ts): an
   // un-migrated deploy must degrade to "no tracking", never to a dead screen.
@@ -462,6 +467,51 @@ export function OrderDetail() {
     }
   };
 
+  /**
+   * Recall the courier parcel before cancelling a shipped order — best-effort.
+   * Only a DTDC parcel can be recalled through the API, and only before it is
+   * collected; for any other carrier (or a collected parcel) the order still
+   * cancels and the physical parcel is sorted out offline.
+   */
+  const recallIfPossible = async () => {
+    if (shipment?.provider === 'dtdc' && (!shipment.last_status || shipment.last_status === 'pickup_pending')) {
+      try { await cancelPickup(o.id); } catch { /* best-effort — cancel the order regardless */ }
+    }
+  };
+
+  /** Seller cancels the order outright (pending/accepted, or a shipped one). */
+  const cancelThisOrder = async () => {
+    setCancellingOrder(true);
+    try {
+      if (o.rawStatus === 'shipped') await recallIfPossible();
+      await cancelOrder(o.id);
+      setConfirmCancelOrder(false);
+      showToast('Order cancelled — the buyer’s refund is with the team');
+      reloadShipment();
+      reload();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not cancel this order', 'error');
+    } finally {
+      setCancellingOrder(false);
+    }
+  };
+
+  /** Approve or decline a buyer's cancellation request on a shipped order. */
+  const answerCancellation = async (approve: boolean) => {
+    setCancellingOrder(true);
+    try {
+      if (approve) await recallIfPossible();
+      await resolveCancellation(o.id, approve);
+      showToast(approve ? 'Cancelled — the buyer’s refund is with the team' : 'Request declined — the buyer has been told');
+      reloadShipment();
+      reload();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not save that decision', 'error');
+    } finally {
+      setCancellingOrder(false);
+    }
+  };
+
   // A booked DTDC parcel the courier has not yet collected can still be called
   // off from here. Once there is any pickup scan beyond "awaiting", it is in the
   // courier's hands and only DTDC support can cancel it.
@@ -568,6 +618,42 @@ export function OrderDetail() {
                 </div>
               )
             )}
+          </div>
+        )}
+
+        {/* ---------- Cancellation request (migration 0119) ---------- */}
+        {/* A buyer asked to cancel a shipped order. The boutique decides, because
+            the parcel is already moving: approving recalls it where the courier
+            allows and refunds the buyer; declining keeps it on its way. */}
+        {o.cancelRequestStatus === 'requested' && o.rawStatus === 'shipped' && (
+          <div style={css('background:var(--ag-surface);border:1.5px solid var(--ag-warn-text);border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 10px 26px -22px rgba(107,20,54,.6);')}>
+            <div style={css('display:flex;align-items:center;gap:8px;')}>
+              <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:19px;color:var(--ag-gold-text);")}>cancel_schedule_send</span>
+              <div style={css('font-size:12px;font-weight:800;color:var(--ag-muted);letter-spacing:.05em;')}>CANCELLATION REQUESTED</div>
+            </div>
+            <div style={css('font-size:13.5px;font-weight:700;margin-top:9px;line-height:1.5;')}>The buyer asked to cancel this order after it shipped.</div>
+            {o.cancelRequestNote && (
+              <div style={css('font-size:13px;color:var(--ag-ink-2);line-height:1.5;margin-top:4px;')}>“{o.cancelRequestNote}”</div>
+            )}
+            <div style={css('font-size:12px;color:var(--ag-muted);line-height:1.5;margin-top:8px;')}>
+              Approving cancels the order and refunds the buyer. If it went by DTDC and hasn’t been picked up, we’ll try to recall the parcel — otherwise stop it with the courier yourself.
+            </div>
+            <div style={css('display:flex;gap:10px;margin-top:12px;')}>
+              <button
+                disabled={cancellingOrder}
+                onClick={() => void answerCancellation(false)}
+                style={css('flex:1;height:44px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-label);border-radius:12px;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;')}
+              >
+                Keep shipping
+              </button>
+              <button
+                disabled={cancellingOrder}
+                onClick={() => void answerCancellation(true)}
+                style={css(`flex:1.2;height:44px;border:none;background:#C0455E;color:#fff;border-radius:12px;font-weight:800;font-size:13px;cursor:${cancellingOrder ? 'wait' : 'pointer'};font-family:inherit;opacity:${cancellingOrder ? 0.7 : 1};`)}
+              >
+                {cancellingOrder ? 'Cancelling…' : 'Approve & cancel'}
+              </button>
+            </div>
           </div>
         )}
 
@@ -980,11 +1066,28 @@ export function OrderDetail() {
                 ? (courierBooked ? null : { status: 'delivered' as const, label: 'Mark delivered', msg: 'Marked delivered' })
                 : null;
 
-        if (!forward && !canReject) return null;
+        // The seller can cancel the order outright up to (but not including)
+        // delivery — a delivered order is unwound through a return. Distinct from
+        // Reject, which labels it "Declined" to the buyer; Cancel reads as the
+        // order being called off.
+        const canCancel = o.rawStatus === 'pending' || o.rawStatus === 'accepted' || o.rawStatus === 'shipped';
+
+        if (!forward && !canReject && !canCancel) return null;
 
         return (
           <div style={css('position:sticky;bottom:0;background:var(--ag-bg);padding:12px 20px 16px;')}>
-            {confirmReject ? (
+            {confirmCancelOrder ? (
+              <div style={css('background:var(--ag-bad-bg);border:1px solid var(--ag-border);border-radius:14px;padding:13px 15px;')}>
+                <div style={css('font-size:13px;font-weight:700;color:var(--ag-danger-text);line-height:1.5;')}>
+                  Cancel this order? The stock returns to your catalogue and the buyer is refunded by the team.
+                  {o.rawStatus === 'shipped' ? ' If it went by DTDC and hasn’t been collected, we’ll try to recall the parcel — otherwise stop it with the courier yourself.' : ''}
+                </div>
+                <div style={css('display:flex;gap:10px;margin-top:11px;')}>
+                  <button disabled={cancellingOrder} onClick={() => setConfirmCancelOrder(false)} style={css('flex:1;height:48px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-label);border-radius:12px;font-weight:800;cursor:pointer;font-family:inherit;')}>Keep order</button>
+                  <button disabled={cancellingOrder} onClick={() => { void cancelThisOrder(); }} style={css(`flex:1;height:48px;border:none;background:var(--ag-danger-text);color:#fff;border-radius:12px;font-weight:800;cursor:${cancellingOrder ? 'default' : 'pointer'};font-family:inherit;opacity:${cancellingOrder ? 0.6 : 1};`)}>{cancellingOrder ? 'Cancelling…' : 'Cancel order'}</button>
+                </div>
+              </div>
+            ) : confirmReject ? (
               <div style={css('background:var(--ag-bad-bg);border:1px solid var(--ag-border);border-radius:14px;padding:13px 15px;')}>
                 <div style={css('font-size:13px;font-weight:700;color:var(--ag-danger-text);line-height:1.5;')}>
                   Reject this order? This can’t be undone and the payment is refunded. The stock returns to your catalogue.
@@ -995,6 +1098,20 @@ export function OrderDetail() {
                 </div>
               </div>
             ) : (
+              <>
+              {/* Cancel the whole order — a lighter secondary above the main
+                  row so it never competes with the forward action, and the only
+                  control the bar offers once a parcel has shipped. */}
+              {canCancel && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmCancelOrder(true)}
+                  style={css('width:100%;height:42px;margin-bottom:10px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-danger-text);border-radius:12px;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:7px;')}
+                >
+                  <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:18px;")}>cancel</span>
+                  Cancel order
+                </button>
+              )}
               <div style={css('display:flex;gap:10px;')}>
                 {canReject && (
                   <button onClick={() => setConfirmReject(true)} style={css('flex:1;height:52px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-danger-text);border-radius:14px;font-weight:800;cursor:pointer;font-family:inherit;')}>Reject</button>
@@ -1013,6 +1130,7 @@ export function OrderDetail() {
                   </button>
                 )}
               </div>
+              </>
             )}
           </div>
         );

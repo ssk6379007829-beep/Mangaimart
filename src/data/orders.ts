@@ -27,6 +27,11 @@ const OPTIONAL_GROUPS = [
     warn: '[orders] refund columns unavailable — apply migration 0097.',
     available: true,
   },
+  {
+    columns: 'cancel_requested_at, cancel_requested_by, cancel_request_note, cancel_request_status',
+    warn: '[orders] cancellation-request columns unavailable — apply migration 0119.',
+    available: true,
+  },
 ];
 
 function currentSelect(): string {
@@ -232,6 +237,63 @@ export async function markOrderPacked(id: string) {
     .update({ packed_at: new Date().toISOString() })
     .eq('id', id);
   if (error) throw error;
+}
+
+/* ── Cancellation (migration 0119) ──────────────────────────────────────────
+ * All three go through SECURITY DEFINER RPCs, not an UPDATE: `orders` has no
+ * buyer update policy and must not get one — a broad grant would let a buyer
+ * rewrite status or total. The functions re-check the caller's role and the
+ * order's stage server-side, restock, and leave the order as a refund candidate
+ * for the admin Refunds console (the refund itself is issued there). Server
+ * messages are written to be shown verbatim, so they are surfaced as-is.
+ */
+
+/** A missing function means 0119 is not applied yet. PostgREST returns
+ *  PGRST202 (or names the function), so turn that into one clear sentence. */
+function cancelFnMissing(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === 'PGRST202' || /cancel_order|request_cancellation|resolve_cancellation/.test(error.message ?? '');
+}
+
+/**
+ * Cancel a pending/accepted order outright (buyer or seller), or a shipped one
+ * (seller/admin only). Restocks and frees the order for refund. A buyer calling
+ * this on a shipped order is refused — they use {@link requestCancellation}.
+ */
+export async function cancelOrder(orderId: string, reason?: string): Promise<void> {
+  const { error } = await supabase.rpc('cancel_order', {
+    p_order_id: orderId,
+    p_reason: reason?.trim() || null,
+  });
+  if (error) {
+    if (cancelFnMissing(error)) throw new Error('Cancellations are not enabled yet — apply migration 0119.');
+    throw new Error(error.message || 'Could not cancel this order.');
+  }
+}
+
+/** Buyer asks to cancel a SHIPPED order; the boutique approves or declines it. */
+export async function requestCancellation(orderId: string, note?: string): Promise<void> {
+  const { error } = await supabase.rpc('request_cancellation', {
+    p_order_id: orderId,
+    p_note: note?.trim() || null,
+  });
+  if (error) {
+    if (cancelFnMissing(error)) throw new Error('Cancellations are not enabled yet — apply migration 0119.');
+    throw new Error(error.message || 'Could not request a cancellation.');
+  }
+}
+
+/** Seller/admin answer to a buyer's shipped-order cancellation request. */
+export async function resolveCancellation(orderId: string, approve: boolean, note?: string): Promise<void> {
+  const { error } = await supabase.rpc('resolve_cancellation', {
+    p_order_id: orderId,
+    p_approve: approve,
+    p_note: note?.trim() || null,
+  });
+  if (error) {
+    if (cancelFnMissing(error)) throw new Error('Cancellations are not enabled yet — apply migration 0119.');
+    throw new Error(error.message || 'Could not save that decision.');
+  }
 }
 
 /*

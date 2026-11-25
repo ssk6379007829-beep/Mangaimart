@@ -259,6 +259,13 @@ export interface OrderWithDetails {
   refund_status?: 'pending' | 'processed' | 'failed' | null;
   cancelled_at?: string | null;
   cancel_reason?: string | null;
+  /** Migration 0119. A buyer's cancellation request on a SHIPPED order, which the
+   *  boutique approves or declines. Optional for the same reason as the columns
+   *  above: the SELECT falls back to a list without them until 0119 is applied. */
+  cancel_requested_at?: string | null;
+  cancel_requested_by?: string | null;
+  cancel_request_note?: string | null;
+  cancel_request_status?: 'requested' | 'approved' | 'declined' | null;
   /** Migration 0063. Optional because the SELECT falls back to a column list
    *  without them when the migration has not been applied yet. */
   packed_at?: string | null;
