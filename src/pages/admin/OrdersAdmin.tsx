@@ -263,7 +263,7 @@ function OrderDetail({ o, onSetStatus }: { o: OrderWithDetails; onSetStatus: (s:
             what the PLATFORM earns, which is revenue, so it is admin-only. */}
         <Field label="Order total" value={fmtInr(o.total)} />
         {showMoney && (
-          <Field label={`Commission (${pct}%)`} value={<span style={css('color:var(--ag-gold-text);')}>{fmtInr(o.total * (pct / 100))}</span>} />
+          <Field label={`Platform fee (${pct}%)`} value={<span style={css('color:var(--ag-gold-text);')}>{fmtInr(o.total * (pct / 100))}</span>} />
         )}
         <Field label="Refund" value={o.refunded ? <StatusPill status="refunded" label="Refunded" /> : 'None'} />
       </div>

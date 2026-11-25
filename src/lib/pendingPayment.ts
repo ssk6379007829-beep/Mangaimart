@@ -26,6 +26,14 @@ export type PendingPayment = {
   couponCode: string | null;
   /** Rupee total shown to the buyer, for the recovery banner's copy. */
   total: number;
+  /**
+   * The signed live-delivery quotes this payment was priced with (migration 0120),
+   * replayed verbatim on retry. Without them a retry would re-price delivery at the
+   * flat zone rate and place-order would reject the paid amount as a mismatch. The
+   * token TTL is set to match this record's 24h retry window, so a token offered
+   * for retry has not expired. Absent/empty on the flat-rate path.
+   */
+  deliveryQuotes?: string[];
   savedAt: string;
 };
 

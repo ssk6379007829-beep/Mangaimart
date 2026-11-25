@@ -60,6 +60,16 @@ export interface PlatformSettings {
    *  platform-wide. The rule itself lives in `src/lib/ratingDisplay.ts` and is
    *  mirrored by `src/lib/schema.ts` and `middleware.js` — they must agree. */
   min_reviews_to_show: number;
+  /**
+   * Platform buffer on the live courier rate charged to the buyer (migration 0120).
+   * The buyer pays rate*(1 + delivery_markup_pct/100) + delivery_markup_flat, so the
+   * marketplace does not lose money on weight-discrepancy charges and RTOs. This is
+   * platform-wide — distinct from the per-seller delivery charge on the boutique
+   * row (0076/0077), which is the seller's own price for a flat-rate shipment. Only
+   * the `delivery-quote` Edge Function reads these to price a live quote; the API
+   * endpoints trust the signed quote and never re-derive the buffer. */
+  delivery_markup_flat: number;
+  delivery_markup_pct: number;
   updated_at: string | null;
 }
 
@@ -84,6 +94,11 @@ export const DEFAULT_SETTINGS: PlatformSettings = {
   // broken, only un-tunable. Failing LOW rather than high is deliberate: a
   // database blip must never blank the ratings shops have earned.
   min_reviews_to_show: 1,
+  // A deliberate, visible buffer on live delivery (migration 0120). A deployment
+  // without 0120 lands here and simply prices live quotes at rate + ₹20; the admin
+  // can tune it once the migration is applied.
+  delivery_markup_flat: 20,
+  delivery_markup_pct: 0,
   updated_at: null,
 };
 
@@ -239,6 +254,37 @@ export async function setMinReviewsToShow(n: number, updatedBy?: string | null):
     return { ok: false, error: 'Could not change the rating threshold. Please try again.' };
   }
   publish({ ...current, min_reviews_to_show: value });
+  return { ok: true };
+}
+
+/**
+ * Set the platform buffer on live delivery (migration 0120).
+ *
+ * Its own write, like `setComingSoon` / `setMinReviewsToShow`: it writes columns
+ * added in 0120, and folding them into the main settings patch would make the
+ * ENTIRE form fail to save on any database that has not run 0120 — taking
+ * commission and the payout terms down with a delivery knob. Isolated, a missing
+ * column breaks only this control, and says so.
+ *
+ * Clamped here as well as by the database CHECK: a mistyped value comes back sane
+ * rather than as a Postgres error string in the UI.
+ */
+export async function setDeliveryMarkup(flat: number, pct: number, updatedBy?: string | null): Promise<SaveResult> {
+  const f = Math.min(1000, Math.max(0, Number(flat) || 0));
+  const p = Math.min(100, Math.max(0, Number(pct) || 0));
+  const { error } = await supabase
+    .from('platform_settings')
+    .update({ delivery_markup_flat: f, delivery_markup_pct: p, updated_at: new Date().toISOString(), updated_by: updatedBy ?? null })
+    .eq('id', 1);
+  if (error) {
+    if (isMissingTable(error)) return { ok: false, error: 'Settings are not enabled yet — apply migration 0048.' };
+    if (error.code === 'PGRST204' || /delivery_markup/i.test(error.message ?? '')) {
+      return { ok: false, error: 'The delivery buffer needs migration 0120 applied first.' };
+    }
+    console.error('setDeliveryMarkup failed:', error.message);
+    return { ok: false, error: 'Could not save the delivery buffer. Please try again.' };
+  }
+  publish({ ...current, delivery_markup_flat: f, delivery_markup_pct: p });
   return { ok: true };
 }
 

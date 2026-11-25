@@ -167,7 +167,7 @@ export function Earnings() {
     { label: 'Orders this month', value: String(thisMonth.length), color: 'var(--ag-ink)' },
     { label: 'Held until delivered', value: fmt(pendingPayout), color: 'var(--ag-gold-text)' },
     { label: 'Released after delivery', value: fmt(Math.max(0, settledPayout)), color: 'var(--ag-good)' },
-    { label: `Commission (${commissionPct}%)`, value: fmt(prepaidCommission + codCommissionOwed), color: 'var(--ag-muted)' },
+    { label: `Platform fee (${commissionPct}%)`, value: fmt(prepaidCommission + codCommissionOwed), color: 'var(--ag-muted)' },
   ];
 
   return (
@@ -203,7 +203,7 @@ export function Earnings() {
             ) : fmt(netEarnings)}
           </div>
           <div style={css('font-size:12.5px;opacity:.82;margin-top:6px;')}>
-            {fmt(prepaidGross)} prepaid{codCash > 0 ? ` + ${fmt(codCash)} collected in cash` : ''}, less {commissionPct}% MangaiMart commission
+            {fmt(prepaidGross)} prepaid{codCash > 0 ? ` + ${fmt(codCash)} collected in cash` : ''}, less {commissionPct}% platform fee
           </div>
           {deltaPct != null && (
             <div style={css('display:flex;gap:6px;align-items:center;margin-top:10px;font-size:13px;font-weight:700;')}>

@@ -251,7 +251,7 @@ Deno.serve(async (req) => {
     ${[
       ['Delivered orders settled', String(payout.orders_count)],
       ['Order value', inr(payout.gross)],
-      [`MangaiMart commission (${RATE_PCT}%)`, '− ' + inr(payout.commission)],
+      [`Platform fee (${RATE_PCT}%)`, '− ' + inr(payout.commission)],
       ...(Number(payout.cod_adjustment) !== 0
         ? [['COD cash you hold, netted off', '− ' + inr(payout.cod_adjustment)]]
         : []),

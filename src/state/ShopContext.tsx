@@ -4,6 +4,7 @@ import { sortSizes } from '@/lib/sizes';
 import { computeTotals, findCoupon, undeliverableReason, type ShopTermsMap } from '@/lib/pricing';
 import type { BuyerPlace } from '@/lib/deliveryZone';
 import { resolvePincode } from '@/data/pincodes';
+import { fetchDeliveryQuotes, type DeliveryQuotes } from '@/data/deliveryQuote';
 import { loadSettings } from '@/data/settings';
 import { fetchActiveCoupons, type CouponRow } from '@/data/coupons';
 import { useCatalog } from '@/state/CatalogContext';
@@ -200,6 +201,14 @@ type ShopValue = {
   shipFee: number;
   total: number;
   coupon: CouponRow | undefined;
+
+  /**
+   * Signed live-delivery quote tokens for the boutiques in the bag (migration
+   * 0120), one per boutique that got a live Shiprocket rate. Passed to
+   * /api/create-order and /api/place-order, which verify them and bind the payment
+   * to the live rate; empty when every boutique fell back to its flat zone rate.
+   */
+  deliveryTokens: string[];
 };
 
 const ShopContext = createContext<ShopValue | null>(null);
@@ -642,6 +651,57 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   // the policy copy reads it, and nothing here can render a fee from it.
   useEffect(() => { void loadSettings(); }, []);
 
+  /**
+   * Live delivery quotes from Shiprocket (migration 0120).
+   *
+   * Fetched whenever the bag or the delivery pincode changes: each boutique gets
+   * the cheapest live courier rate (plus the platform buffer, or free when its
+   * threshold is met), SIGNED so the server can bind the payment to it without
+   * re-quoting. A boutique the function could not price live stays absent here and
+   * falls back to its flat zone rate — so until a quote lands, and whenever
+   * Shiprocket is unreachable, the bag prices exactly as it did before live rates.
+   *
+   * Debounced so a burst of quantity taps makes one call, and guarded so a slow
+   * response for an old cart cannot overwrite a newer one.
+   */
+  const [deliveryQuotes, setDeliveryQuotes] =
+    useState<DeliveryQuotes>({ quotes: {}, degraded: new Set(), unserviceable: new Set() });
+
+  useEffect(() => {
+    const lines = Object.entries(cart).map(([product_id, line]) => ({ product_id, qty: line.qty }));
+    if (!/^[1-9]\d{5}$/.test(effectivePincode ?? '') || lines.length === 0) {
+      setDeliveryQuotes({ quotes: {}, degraded: new Set(), unserviceable: new Set() });
+      return;
+    }
+    let active = true;
+    const t = setTimeout(() => {
+      void fetchDeliveryQuotes(lines, effectivePincode)
+        .then((q) => { if (active) setDeliveryQuotes(q); })
+        .catch(() => { /* network blip — the flat zone rate still prices the bag */ });
+    }, 400);
+    return () => { active = false; clearTimeout(t); };
+  }, [cart, effectivePincode]);
+
+  // The live, signed delivery charge per boutique in the bag, in rupees — what
+  // pricing overrides the flat zone rate with. Keyed only to boutiques actually in
+  // the bag so it mirrors exactly what the server verifies and prices from.
+  const shipOverride = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const id of Object.keys(boutiqueSubtotals)) {
+      const q = deliveryQuotes.quotes[id];
+      if (q) m[id] = q.shipRupees;
+    }
+    return m;
+  }, [deliveryQuotes, boutiqueSubtotals]);
+
+  // The tokens for those same boutiques, passed to create-order / place-order.
+  const deliveryTokens = useMemo(
+    () => Object.keys(boutiqueSubtotals)
+      .map((id) => deliveryQuotes.quotes[id]?.token)
+      .filter((t): t is string => !!t),
+    [deliveryQuotes, boutiqueSubtotals],
+  );
+
   // The applied code resolved to the coupon row that actually qualifies on this
   // bag (per-boutique aware), or undefined.
   const coupon = useMemo(
@@ -649,19 +709,34 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     [coupons, appliedCoupon, subtotal, boutiqueSubtotals],
   );
 
-  /** A shop in the bag that will not deliver to this address, put into words. */
-  const undeliverable = useMemo(
-    () => undeliverableReason(boutiqueSubtotals, shopTerms, buyerPlace),
-    [boutiqueSubtotals, shopTerms, buyerPlace],
-  );
+  /**
+   * A shop in the bag that will not deliver to this address, put into words.
+   *
+   * Two sources: a boutique whose flat zone rate is NULL for this distance (the
+   * pre-0120 check, skipped for any boutique that got a live quote), or a boutique
+   * Shiprocket reports no courier serves at all (`unserviceable`). Either blocks
+   * checkout; the live-quote case is named from the catalogue.
+   */
+  const undeliverable = useMemo(() => {
+    const flat = undeliverableReason(boutiqueSubtotals, shopTerms, buyerPlace, shipOverride);
+    if (flat) return flat;
+    for (const id of Object.keys(boutiqueSubtotals)) {
+      if (boutiqueSubtotals[id] > 0 && deliveryQuotes.unserviceable.has(id)) {
+        const name = boutiques.find((b) => b.id === id)?.name ?? 'One of the boutiques in your bag';
+        const where = [buyerPlace?.district, buyerPlace?.state].filter(Boolean).join(', ') || buyerPlace?.pincode || 'that address';
+        return `${name} cannot deliver to ${where} — no courier serves that route. Remove those items, or use a different delivery address.`;
+      }
+    }
+    return null;
+  }, [boutiqueSubtotals, shopTerms, buyerPlace, shipOverride, deliveryQuotes, boutiques]);
 
   // Mirrors the design: a flat coupon only counts once its minimum is met.
   // Coupon eligibility, discount, delivery and total all come from the shared
   // rules in `@/lib/pricing`, so the coupon screen previews exactly what
   // checkout will charge (and both stay aligned with api/_pricing.js).
   const { discount, shipFee, total } = useMemo(
-    () => computeTotals(subtotal, boutiqueSubtotals, coupon, shopTerms, buyerPlace),
-    [subtotal, boutiqueSubtotals, coupon, shopTerms, buyerPlace],
+    () => computeTotals(subtotal, boutiqueSubtotals, coupon, shopTerms, buyerPlace, shipOverride),
+    [subtotal, boutiqueSubtotals, coupon, shopTerms, buyerPlace, shipOverride],
   );
 
   const orderItems = useMemo(
@@ -695,6 +770,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     items: PendingOrderItem[],
     couponCode: string | null,
     payment: PaymentInfo,
+    quoteTokens: string[],
   ): Promise<string> => {
     // Every order is tied to its buyer's account (readable cross-device via
     // RLS), so the access token is required, not optional — the server refuses
@@ -719,7 +795,10 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     const res = await fetch('/api/place-order', {
       method: 'POST',
       headers,
-      body: JSON.stringify({ items, guest, payment, couponCode }),
+      // `deliveryQuotes` are the same signed tokens create-order verified; the
+      // server re-verifies them and binds the payment to the live rate they carry,
+      // falling back to the flat zone rate for any that fail (migration 0120).
+      body: JSON.stringify({ items, guest, payment, couponCode, deliveryQuotes: quoteTokens }),
     });
     const data = (await res.json().catch(() => ({}))) as {
       orders?: {
@@ -818,10 +897,12 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     // returns — dropped network, closed tab, server error — the money is already
     // captured, and this record is what lets the buyer finish the order instead
     // of waiting on a manual refund.
-    savePendingPayment({ payment, items, couponCode: appliedCoupon, total });
+    // Persist the live-delivery tokens with the parked payment so a retry re-prices
+    // delivery at the exact rate the buyer paid, not the flat fallback (0120).
+    savePendingPayment({ payment, items, couponCode: appliedCoupon, total, deliveryQuotes: deliveryTokens });
 
-    return settleOrder(items, appliedCoupon, payment);
-  }, [cart, appliedCoupon, total, settleOrder]);
+    return settleOrder(items, appliedCoupon, payment, deliveryTokens);
+  }, [cart, appliedCoupon, total, deliveryTokens, settleOrder]);
 
   /**
    * Finishes a payment that was captured but never became an order. Replays the
@@ -831,7 +912,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   const retryPendingPayment = useCallback(async (): Promise<string> => {
     const pending = readPendingPayment();
     if (!pending) throw new Error('Nothing left to complete.');
-    return settleOrder(pending.items, pending.couponCode, pending.payment);
+    return settleOrder(pending.items, pending.couponCode, pending.payment, pending.deliveryQuotes ?? []);
   }, [settleOrder]);
 
   const value: ShopValue = {
@@ -851,6 +932,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     openSellModal: useCallback(() => setSellModal(true), []),
     closeSellModal: useCallback(() => setSellModal(false), []),
     subtotal, discount, shipFee, total, coupon,
+    deliveryTokens,
   };
 
   return <ShopContext.Provider value={value}>{children}</ShopContext.Provider>;

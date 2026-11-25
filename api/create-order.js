@@ -1,5 +1,6 @@
 import { serviceClient } from './_supabase.js';
 import { computeCartPricing, loadBuyerPlace, loadCoupon, loadShopTerms } from './_pricing.js';
+import { verifyDeliveryQuotes } from './_deliveryQuote.js';
 import { enforceRateLimit } from './_rateLimit.js';
 import { activeAccount, clientFor, configuredAccounts } from './_razorpay.js';
 
@@ -87,15 +88,20 @@ async function groupTotalsFromItems(supabase, items) {
 
   const byId = new Map((products ?? []).map((p) => [p.id, p]));
   const groupTotals = {};
+  // Per-boutique lines, so a signed delivery quote can be bound to the exact item
+  // set the server priced (api/_deliveryQuote.js). Same grouping the Edge Function
+  // and place-order.js use, so the item string matches on all three.
+  const groupLines = {};
   let matched = 0;
   for (const it of items) {
     const p = byId.get(it?.product_id);
     if (!p) continue;
     const qty = Math.max(1, Math.floor(Number(it.qty) || 1));
     groupTotals[p.boutique_id] = (groupTotals[p.boutique_id] ?? 0) + Number(p.price) * qty;
+    (groupLines[p.boutique_id] ??= []).push({ product_id: p.id, qty });
     matched += 1;
   }
-  return matched === 0 ? { ok: false, reason: 'EMPTY_CART' } : { ok: true, groupTotals };
+  return matched === 0 ? { ok: false, reason: 'EMPTY_CART' } : { ok: true, groupTotals, groupLines };
 }
 
 export default async function handler(req, res) {
@@ -113,7 +119,7 @@ export default async function handler(req, res) {
   // `pincode` is the delivery address's, not a price the client is proposing:
   // it selects which of each shop's zone rates applies. A buyer cannot cheat it
   // downward, because it is the address the parcel is actually sent to.
-  const { items, couponCode, pincode, currency = 'INR', receipt } = req.body ?? {};
+  const { items, couponCode, pincode, currency = 'INR', receipt, deliveryQuotes } = req.body ?? {};
 
   // The cart is the only price authority. The browser's own `amount` is never
   // trusted, so a request that carries no server-priceable items cannot open
@@ -175,7 +181,14 @@ export default async function handler(req, res) {
   // furthest zone — the same fallback the browser applies.
   const shops = await loadShopTerms(supabase, Object.keys(priced.groupTotals));
   const buyerPlace = await loadBuyerPlace(supabase, pincode);
-  const paise = computeCartPricing(priced.groupTotals, coupon, shops, buyerPlace).totalPaise;
+  // Live Shiprocket quotes (migration 0120), if the browser got any. Each is a
+  // signed figure bound to the boutique, this pincode and the exact items; anything
+  // that fails verification is dropped and that boutique prices at its flat zone
+  // rate instead — so the amount is always one the server stands behind. Opening
+  // checkout for this amount is what makes the buyer pay the live rate; place-order
+  // re-verifies the same tokens and binds the payment to the identical total.
+  const shipOverride = verifyDeliveryQuotes(deliveryQuotes, priced.groupLines, pincode, process.env.DELIVERY_QUOTE_SECRET);
+  const paise = computeCartPricing(priced.groupTotals, coupon, shops, buyerPlace, shipOverride).totalPaise;
 
   // Razorpay rejects anything below 100 paise (₹1).
   //

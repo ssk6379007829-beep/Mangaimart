@@ -337,7 +337,7 @@ export function Payments() {
           sub={overdue.length > 0 ? `${overdue.length} seller${overdue.length === 1 ? '' : 's'} waiting` : 'all on time'}
         />
         <StatCard label="Held — not delivered" value={fmtInr(heldValue)} icon="pause_circle" tint="var(--ag-info-bg)" ic="var(--ag-info-text)" sub={`${heldOrders} paid order${heldOrders === 1 ? '' : 's'}`} />
-        <StatCard label={`Commission (${RATE_PCT}% incl. gateway + tax)`} value={fmtInr(unsettledCommission)} icon="percent" tint="var(--ag-warn-bg)" ic="var(--ag-warn-text)" sub="unsettled" />
+        <StatCard label={`Platform fee (${RATE_PCT}% incl. gateway + tax)`} value={fmtInr(unsettledCommission)} icon="percent" tint="var(--ag-warn-bg)" ic="var(--ag-warn-text)" sub="unsettled" />
       </div>
 
       {/* Overdue is the only thing on this page with a deadline attached, so it
@@ -496,7 +496,7 @@ export function Payments() {
             <div style={css('background:var(--ag-surface);border-radius:16px;padding:6px 16px;box-shadow:0 12px 30px -24px rgba(107,20,54,.6);')}>
               <Field label="Settleable orders" value={selected.orders} />
               <Field label="Sales" value={fmtInr(selected.prepaidGoods)} />
-              <Field label={`Commission (${RATE_PCT}%)`} value={`− ${fmtInr(selected.prepaidCommission)}`} />
+              <Field label={`Platform fee (${RATE_PCT}%)`} value={`− ${fmtInr(selected.prepaidCommission)}`} />
               <Field label="Payout" value={<span style={css('color:var(--ag-good-text);')}>{fmtInr(selected.prepaidPayout)}</span>} />
             </div>
 

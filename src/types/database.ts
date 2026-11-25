@@ -737,6 +737,12 @@ export interface Database {
            *  makes wa_claim_batch return nothing, so the triggers keep queueing
            *  and the wa-drain Edge Function sends none of it. */
           whatsapp_enabled: boolean;
+          /** Platform buffer on the live courier rate charged to the buyer
+           *  (migration 0120): rate*(1 + delivery_markup_pct/100) +
+           *  delivery_markup_flat. Read only by the delivery-quote Edge Function;
+           *  the per-seller delivery charge on the boutique row is separate. */
+          delivery_markup_flat: number;
+          delivery_markup_pct: number;
           updated_at: string;
           updated_by: string | null;
         };

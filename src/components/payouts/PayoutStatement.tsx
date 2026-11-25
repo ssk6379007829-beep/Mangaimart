@@ -124,7 +124,7 @@ export function PayoutStatement({
                 {/* How the order total became this line's contribution. */}
                 <div style={css('border-top:1px solid var(--ag-border-soft);margin-top:9px;padding-top:9px;display:flex;flex-direction:column;gap:5px;')}>
                   <Line label="Order value" value={fmtInr(o.goods)} />
-                  <Line label={`MangaiMart commission (${RATE_PCT}%)`} value={`− ${fmtInr(o.commission)}`} tone="bad" />
+                  <Line label={`Platform fee (${RATE_PCT}%)`} value={`− ${fmtInr(o.commission)}`} tone="bad" />
                   {o.isCod && (o.shippingFee > 0 || o.codFee > 0) && (
                     <Line
                       label="Delivery / COD fees you collected"
@@ -152,7 +152,7 @@ export function PayoutStatement({
       {/* The same arithmetic, totalled — the figure that must match the bank. */}
       <div style={css('background:var(--ag-surface-2);border:1px solid var(--ag-border-soft);border-radius:14px;padding:13px 15px;display:flex;flex-direction:column;gap:6px;')}>
         <Line label={`Order value · ${orders.length} order${orders.length === 1 ? '' : 's'}`} value={fmtInr(goods)} />
-        <Line label={`Commission (${RATE_PCT}%)`} value={`− ${fmtInr(commission)}`} tone="bad" />
+        <Line label={`Platform fee (${RATE_PCT}%)`} value={`− ${fmtInr(commission)}`} tone="bad" />
         {codRecovery > 0 && <Line label="Delivery / COD fees on cash orders" value={`− ${fmtInr(codRecovery)}`} tone="bad" />}
         {coupons > 0 && <Line label="Platform coupons refunded to you" value={`+ ${fmtInr(coupons)}`} tone="good" />}
         <div style={css('border-top:1px solid var(--ag-border-soft);margin-top:3px;padding-top:8px;')}>

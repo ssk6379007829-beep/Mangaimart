@@ -143,19 +143,34 @@ export function shopShipFee(subtotal: number, t: ShopTerms, buyer: BuyerPlace | 
   return rate;
 }
 
+/**
+ * A live, signed Shiprocket delivery charge for one boutique (migration 0120), in
+ * rupees, or null when there is no live quote and the flat zone rate applies. The
+ * server mirror is `overrideFee` in api/_pricing.js.
+ */
+export type ShipOverride = Record<string, number>;
+
+function overrideFee(shipOverride: ShipOverride | undefined, id: string): number | null {
+  const v = shipOverride?.[id];
+  return v != null && Number.isFinite(v) ? v : null;
+}
+
 /** Delivery for the whole bag before any coupon — the sum of each boutique's
- *  own charge, since each ships its own parcel. A shop that cannot reach the
- *  address contributes 0 here; checkout is blocked by `undeliverableReason`
- *  rather than by quietly pricing an impossible bag. */
+ *  own charge, since each ships its own parcel. A boutique with a live signed
+ *  quote (`shipOverride`) uses that; the rest use the flat zone rate. A shop that
+ *  cannot reach the address contributes 0 here; checkout is blocked by
+ *  `undeliverableReason` rather than by quietly pricing an impossible bag. */
 export function baseShipFee(
   boutiqueSubtotals: Record<string, number>,
   shops: ShopTermsMap,
   buyer: BuyerPlace | null = null,
+  shipOverride: ShipOverride = {},
 ): number {
-  return shopsInBag(boutiqueSubtotals).reduce(
-    (sum, id) => sum + (shopShipFee(boutiqueSubtotals[id], termsFor(shops, id), buyer) ?? 0),
-    0,
-  );
+  return shopsInBag(boutiqueSubtotals).reduce((sum, id) => {
+    const live = overrideFee(shipOverride, id);
+    if (live != null) return sum + live;
+    return sum + (shopShipFee(boutiqueSubtotals[id], termsFor(shops, id), buyer) ?? 0);
+  }, 0);
 }
 
 /**
@@ -170,9 +185,13 @@ export function undeliverableReason(
   boutiqueSubtotals: Record<string, number>,
   shops: ShopTermsMap,
   buyer: BuyerPlace | null,
+  shipOverride: ShipOverride = {},
 ): string | null {
   if (!buyer) return null;
   for (const id of shopsInBag(boutiqueSubtotals)) {
+    // A boutique with a live Shiprocket quote is deliverable by definition, even
+    // if the seller never set a flat rate for this distance band.
+    if (overrideFee(shipOverride, id) != null) continue;
     const t = termsFor(shops, id);
     if (rateForZone(t.rates, resolveZone(t.place, buyer)) == null) {
       const who = t.name || 'One of the boutiques in your bag';
@@ -214,12 +233,13 @@ export function couponSavings(
   boutiqueSubtotals: Record<string, number>,
   shops: ShopTermsMap = {},
   buyer: BuyerPlace | null = null,
+  shipOverride: ShipOverride = {},
 ): number {
   if (!isEligible(coupon, cartSubtotal, boutiqueSubtotals)) return 0;
   const base = couponBase(coupon, cartSubtotal, boutiqueSubtotals);
   if (coupon.type === 'pct') return Math.min(Math.round((base * coupon.off) / 100), coupon.max_discount ?? Infinity);
   if (coupon.type === 'flat') return Math.min(coupon.off, base); // never exceed the goods it applies to
-  return baseShipFee(boutiqueSubtotals, shops, buyer); // 'ship' — the delivery fee waived
+  return baseShipFee(boutiqueSubtotals, shops, buyer, shipOverride); // 'ship' — the delivery fee waived
 }
 
 /**
@@ -290,18 +310,20 @@ export function computeTotals(
   coupon: CouponRow | undefined,
   shops: ShopTermsMap = {},
   buyer: BuyerPlace | null = null,
+  shipOverride: ShipOverride = {},
 ) {
   const eligible = coupon && isEligible(coupon, cartSubtotal, boutiqueSubtotals) ? coupon : undefined;
   const freeShip = eligible?.type === 'ship';
-  const discount = eligible && !freeShip ? couponSavings(eligible, cartSubtotal, boutiqueSubtotals, shops, buyer) : 0;
-  const shipFee = freeShip ? 0 : baseShipFee(boutiqueSubtotals, shops, buyer);
+  const discount = eligible && !freeShip ? couponSavings(eligible, cartSubtotal, boutiqueSubtotals, shops, buyer, shipOverride) : 0;
+  const shipFee = freeShip ? 0 : baseShipFee(boutiqueSubtotals, shops, buyer, shipOverride);
 
   const allocated = allocateDiscount(eligible && !freeShip ? eligible : undefined, discount, cartSubtotal, boutiqueSubtotals);
   const perBoutiquePayable: Record<string, number> = {};
   const perBoutiqueShipFee: Record<string, number> = {};
   for (const id of shopsInBag(boutiqueSubtotals)) {
     const t = termsFor(shops, id);
-    perBoutiqueShipFee[id] = freeShip ? 0 : (shopShipFee(boutiqueSubtotals[id], t, buyer) ?? 0);
+    const live = overrideFee(shipOverride, id);
+    perBoutiqueShipFee[id] = freeShip ? 0 : (live != null ? live : (shopShipFee(boutiqueSubtotals[id], t, buyer) ?? 0));
     perBoutiquePayable[id] = Math.max(
       0,
       boutiqueSubtotals[id] - (allocated[id] ?? 0) + perBoutiqueShipFee[id],

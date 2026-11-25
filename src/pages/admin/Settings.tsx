@@ -4,7 +4,7 @@ import { useAsync } from '@/hooks/useAsync';
 import { useShop } from '@/state/ShopContext';
 import { useAuth } from '@/auth/AuthContext';
 import {
-  fetchSettings, saveSettings, setRazorpayAccount, setComingSoon, setMinReviewsToShow,
+  fetchSettings, saveSettings, setRazorpayAccount, setComingSoon, setMinReviewsToShow, setDeliveryMarkup,
   type PlatformSettings, type RazorpayAccount,
 } from '@/data/settings';
 import { logAdminAction } from '@/data/activityLog';
@@ -77,7 +77,13 @@ export function Settings() {
     // `min_reviews_to_show` is excluded on the same grounds (migration 0111 —
     // see RatingVisibilityCard): one unknown column would fail the whole form
     // and take the commission rate down with a cosmetic threshold.
-    const { updated_at: _u, razorpay_account: _r, coming_soon: _c, min_reviews_to_show: _m, ...patch } = form;
+    // `delivery_markup_*` are excluded for the same reason as the others: they are
+    // 0120 columns with their own isolated write (DeliveryBufferCard), so a database
+    // without 0120 can still save commission and the payout terms.
+    const {
+      updated_at: _u, razorpay_account: _r, coming_soon: _c, min_reviews_to_show: _m,
+      delivery_markup_flat: _df, delivery_markup_pct: _dp, ...patch
+    } = form;
     const res = await saveSettings(patch, profile?.id);
     setSaving(false);
     if (!res.ok) { showToast(res.error, 'error'); return; }
@@ -145,6 +151,8 @@ export function Settings() {
         </Card>
       ))}
 
+      <DeliveryBufferCard initialFlat={form.delivery_markup_flat} initialPct={form.delivery_markup_pct} />
+
       {/* Says where the fields that used to sit here went, so nobody spends ten
           minutes looking for the delivery fee. */}
       <Card>
@@ -153,12 +161,13 @@ export function Settings() {
           <div style={css('font-weight:800;font-size:15px;')}>Delivery & payment</div>
         </div>
         <div style={css(`font-size:12.5px;color:${T.muted};line-height:1.7;`)}>
-          Each boutique sets its own delivery charges (priced by distance), free-delivery
-          threshold, dispatch time and change-of-mind return window in its own console — the shop
-          that packs the parcel is the one that prices and promises it. Buyers are charged per
-          boutique, and each order stores the fees it carried. The 30-day cover for a faulty or
-          wrong item stays ours. Cash on delivery has been withdrawn platform-wide: every order is
-          paid in full through Razorpay before it is placed, and there is nothing to switch.
+          Buyers are now charged the live courier rate: at checkout each boutique's parcel is priced
+          by Shiprocket for the exact lane and weight, plus the platform buffer above. A boutique's
+          own free-delivery threshold still applies (the seller funds that), and when Shiprocket is
+          unreachable the bag falls back to the seller's flat distance rates. Dispatch time and the
+          change-of-mind return window stay the seller's; the 30-day cover for a faulty or wrong item
+          stays ours. Cash on delivery has been withdrawn platform-wide — every order is paid in full
+          through Razorpay before it is placed.
         </div>
       </Card>
 
@@ -271,6 +280,95 @@ function ComingSoonCard({ initial }: { initial: boolean }) {
         onConfirm={() => void apply(true)}
         onCancel={() => setConfirming(false)}
       />
+    </Card>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Live-delivery buffer
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * The platform's buffer on the live courier rate (migration 0120).
+ *
+ * The buyer pays Shiprocket's cheapest rate for their parcel plus this buffer —
+ * rate*(1 + pct/100) + flat — so weight-discrepancy charges and the odd RTO do not
+ * turn delivery into a per-order loss. It is platform-wide, unlike the per-seller
+ * delivery charge each shop sets in its own console.
+ *
+ * Its own write, like the cards above it (see `setDeliveryMarkup`): it writes 0120
+ * columns, and one unknown column must not fail the whole settings form.
+ */
+function DeliveryBufferCard({ initialFlat, initialPct }: { initialFlat: number; initialPct: number }) {
+  const { showToast } = useShop();
+  const { profile } = useAuth();
+  const [savedFlat, setSavedFlat] = useState(initialFlat);
+  const [savedPct, setSavedPct] = useState(initialPct);
+  const [flat, setFlat] = useState(String(initialFlat));
+  const [pct, setPct] = useState(String(initialPct));
+  const [busy, setBusy] = useState(false);
+
+  const parsedFlat = Math.min(1000, Math.max(0, Math.round(Number(flat) || 0)));
+  const parsedPct = Math.min(100, Math.max(0, Number(pct) || 0));
+  const dirty = parsedFlat !== savedFlat || parsedPct !== savedPct;
+
+  const apply = async () => {
+    setBusy(true);
+    const res = await setDeliveryMarkup(parsedFlat, parsedPct, profile?.id);
+    setBusy(false);
+    if (!res.ok) { showToast(res.error, 'error'); return; }
+    setSavedFlat(parsedFlat); setSavedPct(parsedPct);
+    setFlat(String(parsedFlat)); setPct(String(parsedPct));
+    showToast('Delivery buffer saved');
+    void logAdminAction({
+      actor_id: profile?.id,
+      actor_name: profile?.full_name ?? 'Admin',
+      action: 'settings.delivery_markup',
+      entity_type: 'settings',
+    });
+  };
+
+  const field = (label: string, value: string, onChange: (v: string) => void, prefix?: string, suffix?: string) => (
+    <div style={css('display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-top:1px solid var(--ag-border-soft);')}>
+      <div style={css('font-weight:700;font-size:13.5px;')}>{label}</div>
+      <div className="agx-field" style={css(`display:flex;align-items:center;gap:6px;border:1.5px solid ${T.field};border-radius:11px;padding:0 12px;height:42px;background:var(--ag-surface);flex:none;`)}>
+        {prefix && <span style={css(`font-size:13px;color:${T.muted};font-weight:700;`)}>{prefix}</span>}
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
+          style={css('border:none;background:none;width:72px;text-align:right;font-size:14px;font-weight:800;font-family:inherit;font-variant-numeric:tabular-nums;color:var(--ag-ink);')}
+        />
+        {suffix && <span style={css(`font-size:12px;color:${T.muted};font-weight:700;`)}>{suffix}</span>}
+      </div>
+    </div>
+  );
+
+  return (
+    <Card>
+      <div style={css('display:flex;align-items:center;gap:10px;margin-bottom:2px;')}>
+        <Icon name="local_shipping" size={19} color="var(--ag-crimson)" />
+        <div style={css('font-weight:800;font-size:15px;')}>Live delivery buffer</div>
+      </div>
+      <div style={css(`font-size:12.5px;color:${T.muted};line-height:1.55;`)}>
+        Added on top of the live courier rate the buyer pays, so the platform does not lose money on
+        weight-discrepancy charges and returns. The buyer pays rate × (1 + percentage) + flat.
+      </div>
+      {field('Flat buffer', flat, setFlat, '₹')}
+      {field('Percentage buffer', pct, setPct, undefined, '%')}
+      {dirty && (
+        <div style={css('display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:14px;')}>
+          <GhostButton onClick={() => { setFlat(String(savedFlat)); setPct(String(savedPct)); }}>Cancel</GhostButton>
+          <button
+            onClick={() => void apply()}
+            disabled={busy}
+            style={css(`height:38px;padding:0 18px;border:none;border-radius:11px;background:var(--ag-crimson);color:#fff;font-weight:800;font-size:13px;font-family:inherit;cursor:${busy ? 'not-allowed' : 'pointer'};opacity:${busy ? '.6' : '1'};`)}
+          >
+            {busy ? 'Saving…' : 'Save buffer'}
+          </button>
+        </div>
+      )}
     </Card>
   );
 }

@@ -825,19 +825,17 @@ export function OrderDetail() {
                 <span style={css(amt + 'color:var(--ag-ink);')}>{fmt(goods)}</span>
               </div>
               <div style={css(row)}>
-                <span style={css('color:var(--ag-muted);')}>MangaiMart commission ({commissionPct}%)</span>
+                <span style={css('color:var(--ag-muted);')}>Platform fee ({commissionPct}%)</span>
                 <span style={css(amt + 'color:var(--ag-danger-text);')}>− {fmt(commissionAmt)}</span>
               </div>
               <div style={css(row)}>
                 <span style={css('color:var(--ag-muted);')}>Payment / Razorpay charges</span>
                 <span style={css('font-weight:700;color:var(--ag-good);')}>Covered by us</span>
               </div>
-              {o.shippingFee > 0 && (
-                <div style={css(row)}>
-                  <span style={css('color:var(--ag-muted);')}>Delivery (paid by customer)</span>
-                  <span style={css('font-weight:700;color:var(--ag-muted);')}>Not your charge</span>
-                </div>
-              )}
+              <div style={css(row)}>
+                <span style={css('color:var(--ag-muted);')}>Delivery</span>
+                <span style={css('font-weight:700;color:var(--ag-good);')}>Covered by us</span>
+              </div>
 
               <div style={css('display:flex;justify-content:space-between;align-items:center;margin-top:11px;padding-top:11px;border-top:1px solid var(--ag-border-soft);')}>
                 <span style={css('font-weight:800;font-size:14px;')}>You receive</span>
@@ -845,7 +843,7 @@ export function OrderDetail() {
               </div>
 
               <div style={css('font-size:11.5px;color:var(--ag-muted);line-height:1.55;margin-top:9px;')}>
-                The {commissionPct}% is all we take — Razorpay and payment-gateway fees are on us, nothing extra is deducted.
+                The {commissionPct}% is all we take — delivery, Razorpay and payment-gateway fees are on us, nothing extra is deducted.
                 Paid to your bank after the order is delivered{slaHours ? `, within ${slaHours} hours of delivery` : ''}.
               </div>
             </div>

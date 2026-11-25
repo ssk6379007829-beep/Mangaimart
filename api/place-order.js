@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { serviceClient } from './_supabase.js';
 import { computeCartPricing, loadBuyerPlace, loadCoupon, loadShopTerms, redeemCoupon, undeliverableShop } from './_pricing.js';
+import { verifyDeliveryQuotes } from './_deliveryQuote.js';
 import { enforceRateLimit } from './_rateLimit.js';
 import { clientFor, verifyPaymentSignature } from './_razorpay.js';
 import { sendEmail, layout, rowsTable, inr, esc, appUrl, isValidEmail } from './_email.js';
@@ -351,7 +352,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Order service is not configured (missing Supabase service role)' });
   }
 
-  const { items, guest, payment, couponCode, paymentMethod } = req.body ?? {};
+  const { items, guest, payment, couponCode, paymentMethod, deliveryQuotes } = req.body ?? {};
 
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Cart is empty' });
@@ -539,11 +540,24 @@ export default async function handler(req, res) {
     // does not reject a correctly-priced payment.
     const buyerPlace = await loadBuyerPlace(supabase, guest?.pincode);
 
+    // Live Shiprocket quotes (migration 0120), re-verified here exactly as
+    // create-order.js verified them when it opened checkout — same secret, same
+    // binding to boutique + pincode + items. `groupLines` is the authoritative item
+    // set the server just grouped, which is what the item binding is checked
+    // against. A boutique whose token fails (tampered, expired, items changed since
+    // the quote) drops out and is priced at its flat zone rate, so the payment is
+    // always bound to an amount the server stands behind.
+    const groupLines = Object.fromEntries(
+      [...groups.values()].map((g) => [g.boutique_id, g.lines.map((l) => ({ product_id: l.product_id, qty: l.qty }))]),
+    );
+    const shipOverride = verifyDeliveryQuotes(deliveryQuotes, groupLines, guest?.pincode, process.env.DELIVERY_QUOTE_SECRET);
+
     // A shop that does not deliver this far must not be sold a parcel it cannot
     // send. Checked before the payment binding so a prepaid buyer is refused
     // with their money untouched, and re-checked here rather than trusted from
-    // the browser because it is the seller's promise, not the buyer's claim.
-    const cannotDeliver = undeliverableShop(groupTotals, shops, buyerPlace);
+    // the browser because it is the seller's promise, not the buyer's claim. A
+    // boutique with a live quote is deliverable by definition, so it is skipped.
+    const cannotDeliver = undeliverableShop(groupTotals, shops, buyerPlace, shipOverride);
     if (cannotDeliver) {
       return res.status(400).json({
         error: `${cannotDeliver} does not deliver to that address. Remove those items, or use a different delivery address.`,
@@ -570,7 +584,7 @@ export default async function handler(req, res) {
       if (!razorpay) {
         return res.status(500).json({ error: 'Payment verification is not configured' });
       }
-      const expectedPaise = computeCartPricing(groupTotals, coupon, shops, buyerPlace).totalPaise;
+      const expectedPaise = computeCartPricing(groupTotals, coupon, shops, buyerPlace, shipOverride).totalPaise;
 
       let rzPayment;
       try {
@@ -678,7 +692,7 @@ export default async function handler(req, res) {
     // checkout. Summed across the orders this request creates, total +
     // shipping_fee − platform_discount equals exactly what the buyer paid, which
     // is what the amount binding above asserted against.
-    const cartTotals = computeCartPricing(groupTotals, coupon, shops, buyerPlace);
+    const cartTotals = computeCartPricing(groupTotals, coupon, shops, buyerPlace, shipOverride);
 
     // Claim the redemption before writing the orders. Done here — after pricing,
     // before the rows exist — so a code that ran out between the buyer loading
@@ -724,6 +738,13 @@ export default async function handler(req, res) {
         // total + shipping_fee − platform_discount is what they pay, and it is
         // what the payout credits back to the seller (migration 0053).
         const platformDiscount = cartTotals.perBoutiquePlatformDiscount[g.boutique_id] ?? 0;
+        // Live quote for this boutique (migration 0120), or undefined on the flat-rate
+        // path. `quoted_ship_cost` is the courier's own rate before the buffer — what
+        // the platform will owe Shiprocket, so it is what the payout nets off a seller
+        // who gave free delivery, and what reconciliation compares to the wallet. It
+        // is stored even when the buyer paid full price (shipping_fee = cost + buffer),
+        // so every live order carries the courier it was priced for.
+        const liveQuote = shipOverride[g.boutique_id];
         const { data: order, error: orderErr } = await supabase
           .from('orders')
           .insert({
@@ -737,6 +758,17 @@ export default async function handler(req, res) {
             // Which code paid for this, so redemptions are auditable (0049).
             coupon_code: couponApplied,
             shipping_fee: shippingForThisOrder,
+            // The 0120 columns are written ONLY when this order actually carried a
+            // live quote. On the flat-rate path they are omitted entirely, so an
+            // order can still be written on a deployment where 0120 has not been
+            // applied yet — the feature stays inert until migration + secret are in.
+            ...(liveQuote
+              ? {
+                  quoted_ship_cost: liveQuote.baseCostRupees ?? null,
+                  quoted_courier_id: liveQuote.courierId ?? null,
+                  quoted_courier_name: liveQuote.courierName ?? null,
+                }
+              : {}),
             ...guestFields,
           })
           .select('id, order_number, boutique_id, total, discount, platform_discount, shipping_fee, created_at')

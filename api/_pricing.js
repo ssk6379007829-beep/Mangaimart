@@ -225,21 +225,38 @@ function shopShipFee(subtotal, t, buyer) {
   return rate;
 }
 
+// The live, signed delivery charge for one boutique when the buyer was quoted a
+// real Shiprocket rate (migration 0120), or null when there is no override and the
+// flat zone rate applies. `shipOverride` is the map returned by
+// verifyDeliveryQuotes() in api/_deliveryQuote.js — already verified and bound to
+// this cart and address, so it is simply trusted here.
+function overrideFee(shipOverride, id) {
+  const o = shipOverride?.[id];
+  return o && Number.isFinite(Number(o.shipRupees)) ? Number(o.shipRupees) : null;
+}
+
 // Mirror of baseShipFee(): each boutique ships its own parcel and charges for it.
-function shipFeeFor(groupTotals, shops, buyer) {
-  return shopsInBag(groupTotals).reduce(
-    (sum, id) => sum + (shopShipFee(groupTotals[id], termsFor(shops, id), buyer) ?? 0),
-    0,
-  );
+// A boutique with a live signed quote uses that; the rest use the flat zone rate.
+function shipFeeFor(groupTotals, shops, buyer, shipOverride) {
+  return shopsInBag(groupTotals).reduce((sum, id) => {
+    const live = overrideFee(shipOverride, id);
+    if (live != null) return sum + live;
+    return sum + (shopShipFee(groupTotals[id], termsFor(shops, id), buyer) ?? 0);
+  }, 0);
 }
 
 /**
  * Mirror of undeliverableReason(): the boutique in this bag that cannot reach
  * the address, or null. Returned as a name so place-order can say which shop.
+ *
+ * A boutique with a live signed quote (`shipOverride`) is deliverable by
+ * definition — Shiprocket returned a serviceable courier for the lane — so the
+ * flat-rate "does this shop deliver that far" check is skipped for it.
  */
-export function undeliverableShop(groupTotals, shops, buyer) {
+export function undeliverableShop(groupTotals, shops, buyer, shipOverride) {
   if (!buyer) return null;
   for (const id of shopsInBag(groupTotals)) {
+    if (overrideFee(shipOverride, id) != null) continue;
     const t = termsFor(shops, id);
     if (rateForZone(t.rates, zoneFor(t.place, buyer)) == null) return t.name || 'One of the boutiques in your bag';
   }
@@ -332,14 +349,14 @@ function isEligible(coupon, cartSubtotal, groupTotals) {
 
 // Mirror of couponSavings() in src/lib/pricing.ts. `max_discount` is no longer
 // settable from either console, but rows created while it was still carry it.
-function couponSavings(coupon, cartSubtotal, groupTotals, shops, buyer) {
+function couponSavings(coupon, cartSubtotal, groupTotals, shops, buyer, shipOverride) {
   if (!isEligible(coupon, cartSubtotal, groupTotals)) return 0;
   const base = couponBase(coupon, cartSubtotal, groupTotals);
   if (coupon.type === 'pct') {
     return Math.min(Math.round((base * coupon.off) / 100), coupon.max_discount ?? Infinity);
   }
   if (coupon.type === 'flat') return Math.min(coupon.off, base);
-  return shipFeeFor(groupTotals, shops, buyer); // 'ship' — the delivery fee waived
+  return shipFeeFor(groupTotals, shops, buyer, shipOverride); // 'ship' — the delivery fee waived
 }
 
 /**
@@ -361,12 +378,12 @@ function couponSavings(coupon, cartSubtotal, groupTotals, shops, buyer) {
  * records its share in `orders.platform_discount` (migration 0053) and the
  * payout arithmetic can tell the two kinds of discount apart.
  */
-export function computeCartPricing(groupTotals, coupon, shops = {}, buyer = null) {
+export function computeCartPricing(groupTotals, coupon, shops = {}, buyer = null, shipOverride = {}) {
   const cartSubtotal = Object.values(groupTotals).reduce((sum, v) => sum + v, 0);
   const eligible = coupon && isEligible(coupon, cartSubtotal, groupTotals) ? coupon : null;
 
   const freeShip = eligible?.type === 'ship';
-  const discount = eligible && !freeShip ? couponSavings(eligible, cartSubtotal, groupTotals, shops, buyer) : 0;
+  const discount = eligible && !freeShip ? couponSavings(eligible, cartSubtotal, groupTotals, shops, buyer, shipOverride) : 0;
 
   // Only a seller coupon's discount is allocated to a boutique (and so funded by
   // that seller). A platform coupon reduces the buyer's payment but no order.
@@ -390,7 +407,7 @@ export function computeCartPricing(groupTotals, coupon, shops = {}, buyer = null
     if (ids.length > 0) perBoutiquePlatformDiscount[ids[0]] = remaining;
   }
 
-  const shipFee = freeShip ? 0 : shipFeeFor(groupTotals, shops, buyer);
+  const shipFee = freeShip ? 0 : shipFeeFor(groupTotals, shops, buyer, shipOverride);
   const total = Math.max(0, cartSubtotal - discount) + shipFee;
 
   // What each boutique's own order comes to — its goods, less whichever discount
@@ -406,7 +423,8 @@ export function computeCartPricing(groupTotals, coupon, shops = {}, buyer = null
   for (const id of shopsInBag(groupTotals)) {
     const t = termsFor(shops, id);
     const allocated = (perBoutiqueDiscount[id] ?? 0) + (perBoutiquePlatformDiscount[id] ?? 0);
-    perBoutiqueShipFee[id] = freeShip ? 0 : (shopShipFee(groupTotals[id], t, buyer) ?? 0);
+    const live = overrideFee(shipOverride, id);
+    perBoutiqueShipFee[id] = freeShip ? 0 : (live != null ? live : (shopShipFee(groupTotals[id], t, buyer) ?? 0));
     perBoutiquePayable[id] = Math.max(0, groupTotals[id] - allocated + perBoutiqueShipFee[id]);
   }
 

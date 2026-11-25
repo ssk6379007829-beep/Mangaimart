@@ -15,7 +15,7 @@ export function Payment() {
     payMethod, setPayMethod, subtotal, discount, shipFee, total,
     guest, orderItems, appliedCoupon, coupon,
     placeOrder, retryPendingPayment, showToast, undeliverable,
-    cart,
+    cart, deliveryTokens,
   } = useShop();
   // Same guard as checkout: an empty bag has nothing to pay for, and a step-3
   // screen quoting ₹0 is only a slower way of saying so.
@@ -61,6 +61,9 @@ export function Payment() {
         // The delivery address decides which distance band each boutique
         // charges, so the server needs it to derive the same total.
         pincode: guest.pincode,
+        // Signed live Shiprocket quotes (migration 0120); create-order verifies
+        // them and opens checkout for the live rate the buyer was shown.
+        deliveryQuotes: deliveryTokens,
         amountPaise: Math.round(total * 100),
         name: 'MangaiMart',
         description: 'Order payment',

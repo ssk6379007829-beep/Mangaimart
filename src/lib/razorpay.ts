@@ -66,6 +66,13 @@ type PayArgs = {
    * amount would not match what the buyer was shown.
    */
   pincode?: string | null;
+  /**
+   * Signed live-delivery quote tokens (migration 0120), one per boutique in the
+   * bag. create-order.js verifies them and opens checkout for the live rate they
+   * carry; anything invalid is ignored and that boutique prices at its flat zone
+   * rate. Omit on the flat-rate path.
+   */
+  deliveryQuotes?: string[];
   /** Amount in paise (₹1 = 100). Must be at least 100. Fallback when `items` is absent. */
   amountPaise: number;
   name: string;
@@ -83,6 +90,7 @@ export async function payWithRazorpay({
   items,
   couponCode,
   pincode,
+  deliveryQuotes,
   amountPaise,
   name,
   description,
@@ -112,6 +120,7 @@ export async function payWithRazorpay({
       items: items && items.length ? items : undefined,
       couponCode: couponCode ?? null,
       pincode: pincode ?? null,
+      deliveryQuotes: deliveryQuotes && deliveryQuotes.length ? deliveryQuotes : undefined,
       amount: amountPaise,
       currency: 'INR',
       receipt,
