@@ -4,8 +4,11 @@
  * The buyer's checkout calls this once their delivery pincode is known. For each
  * boutique in the bag it:
  *   1. computes the parcel's real weight server-side from products.weight_grams
- *      (falling back to boutiques.default_weight_grams) — the browser never sends
- *      a weight, so it cannot be shaved to get a cheaper quote;
+ *      (falling back to boutiques.default_weight_grams) AND declares the shop's
+ *      box (boutiques.package_*_cm) — the browser never sends either, so neither
+ *      can be shaved for a cheaper quote, and both MUST match what shiprocket-book
+ *      declares (order_parcel_metrics) or Shiprocket's volumetric weight puts the
+ *      booking a whole rate slab above the quote and the platform eats the gap;
  *   2. asks SHIPROCKET for the cheapest live rate on the lane (shop pincode →
  *      delivery pincode at that weight) — the same aggregator courier-serviceability
  *      already uses, where the rate was read but never surfaced;
@@ -130,7 +133,7 @@ Deno.serve(async (req: Request) => {
     // SELECT, so every column is named.
     const { data: boutiques, error: bErr } = await db
       .from('boutiques')
-      .select('id, name, pincode, default_weight_grams, free_delivery_over')
+      .select('id, name, pincode, default_weight_grams, free_delivery_over, package_length_cm, package_breadth_cm, package_height_cm')
       .in('id', [...groups.keys()]);
     if (bErr) throw bErr;
     const shopById = new Map((boutiques ?? []).map((b) => [b.id, b]));
@@ -171,9 +174,26 @@ Deno.serve(async (req: Request) => {
         const per = p && p.weight_grams != null ? Number(p.weight_grams) : defaultGrams;
         grams += per * l.qty;
       }
-      const weightKg = Math.max(0.1, Math.round(grams) / 1000);
+      // Mirror order_parcel_metrics exactly — round to 2 dp, 0.05 kg floor — so the
+      // weight the buyer is quoted is the weight shiprocket-book declares. A quote
+      // on a different weight than the booking can land on a different rate slab.
+      const weightKg = Math.max(0.05, Math.round(grams / 10) / 100);
       const pickup = String(shop?.pincode ?? '').replace(/\D/g, '');
       const itemStr = itemString(g.lines);
+
+      // The shop's box. Shiprocket bills forward freight on max(dead, volumetric)
+      // weight; shiprocket-book declares these package_*_cm, so the quote must send
+      // them to serviceability too. Omitting them rated only the 0.5 kg dead weight
+      // and under-quoted every light-but-bulky parcel by a full slab — the live
+      // leak on MM-WFZLZXEE31 (quoted 0.5 kg / ₹85.72, billed 0.864 kg vol / ₹141.72).
+      // Only sent when all three are present and positive, matching the booking,
+      // which declares no box (weight-only rating) when the shop left them blank.
+      const boxL = Number(shop?.package_length_cm) || 0;
+      const boxB = Number(shop?.package_breadth_cm) || 0;
+      const boxH = Number(shop?.package_height_cm) || 0;
+      const dimsQuery = boxL > 0 && boxB > 0 && boxH > 0
+        ? `&length=${boxL}&breadth=${boxB}&height=${boxH}`
+        : '';
 
       // A boutique with no usable pickup pincode cannot be live-quoted; degrade it
       // so the browser prices it from the flat rate instead of failing the bag.
@@ -186,7 +206,7 @@ Deno.serve(async (req: Request) => {
       try {
         const res = await srFetch<ServiceabilityResponse>(
           srToken,
-          `/courier/serviceability/?pickup_postcode=${pickup}&delivery_postcode=${dest}&weight=${weightKg}&cod=0`,
+          `/courier/serviceability/?pickup_postcode=${pickup}&delivery_postcode=${dest}&weight=${weightKg}${dimsQuery}&cod=0`,
         );
         couriers = res?.data?.available_courier_companies ?? [];
       } catch (e) {
