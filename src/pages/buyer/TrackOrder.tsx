@@ -62,6 +62,9 @@ export function TrackOrder() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [requested, setRequested] = useState(false);
   const [showAllScans, setShowAllScans] = useState(false);
+  // The order lines + payment breakdown are an invoice, not a tracker — collapsed
+  // by default so the screen opens on the status, not the receipt.
+  const [showDetails, setShowDetails] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [receiptBusy, setReceiptBusy] = useState(false);
   const feedback = useOrderFeedback(orders);
@@ -583,8 +586,14 @@ export function TrackOrder() {
                 {/* The courier's own scans. This is what a buyer refreshes for,
                     and until now none of it reached them. Newest first; the
                     rest folded away because some couriers post a scan at every
-                    hub and the list gets long fast. */}
-                {st.index === 4 && st.done && (scans ?? []).length > 0 && (
+                    hub and the list gets long fast.
+
+                    Attached to the courier node the parcel has CURRENTLY reached
+                    (`st.current`, index ≥ 4) so the latest activity always sits
+                    at the frontier of the timeline — not pinned to one fixed
+                    step, which left a "picked up" scan stranded under "Awaiting
+                    pickup" while "In Transit" sat empty. */}
+                {st.current && st.index >= 4 && (scans ?? []).length > 0 && (
                   <div style={css('margin-top:10px;')}>
                     {(showAllScans ? (scans ?? []) : (scans ?? []).slice(0, 1)).map((sc) => (
                       <div key={sc.id} style={css('display:flex;gap:9px;padding:7px 0;')}>
@@ -625,12 +634,32 @@ export function TrackOrder() {
           )}
         </div>
 
-        {/* ---------- Items ---------- */}
+        {/* ---------- Order details (collapsed) ----------
+            A tracker, not an invoice: the lines and the payment breakdown sit
+            behind one tap so the page opens clean on the status. The summary row
+            still answers "what, and how much" at a glance. */}
         <div style={css(`${card}padding:20px;margin-top:16px;`)}>
-          <div style={css(`${sectionTitle}`)}>
-            {order.items.length} {order.items.length === 1 ? 'item' : 'items'} from {order.boutique}
-          </div>
-          <div style={css('display:flex;flex-direction:column;gap:14px;margin-top:14px;')}>
+          <button
+            onClick={() => setShowDetails((v) => !v)}
+            aria-expanded={showDetails}
+            style={css('width:100%;border:none;background:none;padding:0;cursor:pointer;font-family:inherit;color:inherit;display:flex;align-items:center;gap:13px;text-align:left;')}
+          >
+            <div className="agx-thumb-media" style={css(`width:46px;flex:none;background:${TONES[item?.tone ?? 0]};`)}>
+              <ImageSlot src={item ? productById(item.pid)?.image : undefined} placeholder={item?.title} className="agx-prod-fill" />
+            </div>
+            <div style={css('flex:1;min-width:0;')}>
+              <div style={css('font-weight:800;font-size:14.5px;')}>
+                {order.items.length} {order.items.length === 1 ? 'item' : 'items'} from {order.boutique}
+              </div>
+              <div style={css('color:var(--ag-muted);font-size:12.5px;margin-top:2px;')}>
+                {owes ? 'Due on delivery' : 'Paid'} · <span style={css('font-variant-numeric:tabular-nums;font-weight:700;color:var(--ag-ink-2);')}>{fmt(order.total)}</span>
+              </div>
+            </div>
+            <span aria-hidden="true" style={css(`font-family:'Material Symbols Outlined';font-size:24px;color:var(--ag-crimson);flex:none;${showDetails ? 'transform:rotate(180deg);' : ''}`)}>expand_more</span>
+          </button>
+
+          {showDetails && (<>
+          <div style={css('display:flex;flex-direction:column;gap:14px;margin-top:16px;')}>
             {order.items.map((it, i) => (
               <div
                 key={`${it.pid}-${it.size}-${i}`}
@@ -694,6 +723,7 @@ export function TrackOrder() {
               </button>
             )}
           </div>
+          </>)}
         </div>
 
         {/* ---------- Delivery address ---------- */}
