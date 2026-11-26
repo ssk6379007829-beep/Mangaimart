@@ -1,7 +1,7 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { css } from '@/lib/css';
 import { useAuth } from '@/auth/AuthContext';
-import { signInWithGoogle, sendPasswordResetCode, verifyEmailOtp, friendlyAuthError } from '@/lib/authMethods';
+import { signInWithGoogle, friendlyAuthError } from '@/lib/authMethods';
 import { ConsentCheckbox, ConsentNotice, CONSENT_REQUIRED } from '@/components/legal/Consent';
 import { GoogleIcon } from '@/components/ui/GoogleIcon';
 
@@ -16,9 +16,14 @@ const emailOk = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
  * put two different sign-in methods behind one ambiguous field — the primary
  * button changed meaning depending on whether the field had text in it.
  *
- * The emailed 6-digit code now belongs to one flow only: forgot-password. That
- * flow is `forgot → code → newpass`, and it doubles as how a buyer who joined
- * with Google or (historically) a code sets a password for the first time.
+ * Forgot-password is `forgot → sent`: we email a secure reset LINK (the same
+ * flow the admin and seller logins use) and the buyer opens it to land on
+ * `/auth/reset-password`, where they choose a new password. It doubles as how a
+ * buyer who joined with Google sets a password for the first time — a recovery
+ * link opens a session for any existing account, with or without a password.
+ * (This replaced an emailed 6-digit code that depended on the Supabase
+ * "Magic Link" template carrying `{{ .Token }}`; the recovery template is a
+ * link out of the box, so this flow needs no dashboard template edit.)
  *
  * On success the browser holds a Supabase session and `onDone` fires so the
  * caller can sync.
@@ -37,19 +42,15 @@ export function AccountSheet({
   title?: string;
   subtitle?: string;
 }) {
-  const { signInWithPassword, signUpWithPassword, updatePassword } = useAuth();
-  const [view, setView] = useState<'signin' | 'create' | 'forgot' | 'code' | 'newpass'>('signin');
+  const { signInWithPassword, signUpWithPassword, sendPasswordReset } = useAuth();
+  const [view, setView] = useState<'signin' | 'create' | 'forgot' | 'sent'>('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [digits, setDigits] = useState(['', '', '', '', '', '']);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const inputs = useRef<(HTMLInputElement | null)[]>([]);
 
-  const code = digits.join('');
   const inputStyle = css('display:block;width:100%;margin-top:7px;border:1.5px solid var(--ag-border);background:var(--ag-bg);border-radius:14px;padding:0 15px;height:52px;font-size:15px;font-weight:600;color:var(--ag-ink);box-sizing:border-box;');
   const labelStyle = css('font-size:12.5px;font-weight:800;color:var(--ag-label);display:block;');
   const primaryStyle = (extra = '') => css(`width:100%;height:54px;margin-top:18px;border:none;border-radius:16px;background:linear-gradient(135deg,#D6336C,#B02454);color:#fff;font-weight:800;font-size:16px;cursor:pointer;box-shadow:0 14px 30px -14px rgba(214,51,108,.8);display:flex;align-items:center;justify-content:center;gap:8px;opacity:${busy ? 0.7 : 1};${extra}`);
@@ -103,71 +104,29 @@ export function AccountSheet({
     }
   };
 
-  // Send the code. The confirmation is deliberately non-committal ("if that
-  // email has an account"), so the sheet never reveals who is registered.
-  const sendCode = async () => {
+  // Email a reset LINK. The confirmation is deliberately non-committal ("if that
+  // email has an account"), so the sheet never reveals who is registered — and
+  // `sendPasswordReset` (resetPasswordForEmail) likewise never errors on an
+  // unknown address, so there is no enumeration oracle here either.
+  const sendLink = async () => {
     if (!emailOk(email)) return setError('Enter a valid email address.');
     setBusy(true);
     setError('');
     try {
-      await sendPasswordResetCode(email.trim());
-      setDigits(['', '', '', '', '', '']);
-      go('code');
+      await sendPasswordReset(email.trim(), `${window.location.origin}/auth/reset-password`);
+      go('sent');
     } catch (e) {
-      setError(e instanceof Error ? friendlyAuthError(e.message) : 'Could not send the code');
+      setError(e instanceof Error ? friendlyAuthError(e.message) : 'Could not send the reset link');
     } finally {
       setBusy(false);
     }
-  };
-
-  // Verifying the code opens a real session — that is what lets updateUser set
-  // the new password on the next screen.
-  const verify = async () => {
-    if (code.length !== 6) return setError('Enter all 6 digits.');
-    setBusy(true);
-    setError('');
-    try {
-      await verifyEmailOtp(email, code);
-      setPassword('');
-      setConfirm('');
-      go('newpass');
-    } catch (e) {
-      setError(e instanceof Error ? friendlyAuthError(e.message) : 'Verification failed');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const savePassword = async () => {
-    if (password.length < 8) return setError('Use at least 8 characters.');
-    if (password !== confirm) return setError('Passwords do not match.');
-    setBusy(true);
-    setError('');
-    try {
-      await updatePassword(password);
-      onDone();
-    } catch (e) {
-      setError(e instanceof Error ? friendlyAuthError(e.message) : 'Could not update password');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const setDigit = (i: number, v: string) => {
-    const d = v.replace(/\D/g, '').slice(-1);
-    setDigits((prev) => prev.map((x, j) => (j === i ? d : x)));
-    if (d && i < 5) inputs.current[i + 1]?.focus();
-  };
-  const onKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !digits[i] && i > 0) inputs.current[i - 1]?.focus();
   };
 
   const HEAD: Record<typeof view, { icon: string; heading: string; sub: string }> = {
     signin: { icon: 'account_circle', heading: title ?? 'Sign in to sync', sub: subtitle ?? 'Keep your orders & details on any device.' },
     create: { icon: 'account_circle', heading: 'Create your account', sub: 'Keep your orders & details on any device.' },
-    forgot: { icon: 'lock_reset', heading: 'Forgot your password?', sub: 'Enter your email and we’ll send a 6-digit code to reset it. This is also how you set a password for the first time if you joined with Google.' },
-    code: { icon: 'mark_email_read', heading: 'Enter the code', sub: `If ${email} has an account, a 6-digit code is on its way.` },
-    newpass: { icon: 'lock_reset', heading: 'Choose a new password', sub: 'You’re verified — pick a password you’ll use from now on.' },
+    forgot: { icon: 'lock_reset', heading: 'Forgot your password?', sub: 'Enter your email and we’ll send a secure link to reset it. This is also how you set a password for the first time if you joined with Google.' },
+    sent: { icon: 'mark_email_read', heading: 'Check your email', sub: `If ${email} has an account, a reset link is on its way. Open it on this device to set a new password.` },
   };
   const head = HEAD[view];
 
@@ -267,7 +226,7 @@ export function AccountSheet({
           </>
         )}
 
-        {/* ─────────────── Forgot password: email → code ─────────────── */}
+        {/* ─────────────── Forgot password: email → reset link ─────────────── */}
         {view === 'forgot' && (
           <>
             <div style={css('margin-top:22px;')}>
@@ -276,7 +235,7 @@ export function AccountSheet({
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') void sendCode(); }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void sendLink(); }}
                   placeholder="you@example.com"
                   autoComplete="email"
                   autoFocus
@@ -287,70 +246,23 @@ export function AccountSheet({
 
             {errorLine}
 
-            <button onClick={sendCode} disabled={busy} style={primaryStyle()}>
-              {busy ? 'Sending…' : 'Email me a code'}
+            <button onClick={sendLink} disabled={busy} style={primaryStyle()}>
+              {busy ? 'Sending…' : 'Email me a reset link'}
               {!busy && <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:20px;")}>mail</span>}
             </button>
             <button onClick={() => go('signin')} style={quietButton}>Back to sign in</button>
           </>
         )}
 
-        {/* ─────────────── Forgot password: the 6-digit code ─────────────── */}
-        {view === 'code' && (
+        {/* ─────────────── Forgot password: link sent ─────────────── */}
+        {view === 'sent' && (
           <>
-            <div style={css('display:flex;gap:10px;justify-content:center;margin-top:22px;')}>
-              {digits.map((d, i) => (
-                <input
-                  key={i}
-                  ref={(el) => { inputs.current[i] = el; }}
-                  value={d}
-                  onChange={(e) => setDigit(i, e.target.value)}
-                  onKeyDown={(e) => onKeyDown(i, e)}
-                  maxLength={1}
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  aria-label={`Digit ${i + 1}`}
-                  autoFocus={i === 0}
-                  style={css(`width:46px;height:56px;text-align:center;font-size:23px;font-weight:800;border:1.5px solid ${d ? '#D6336C' : 'var(--ag-border)'};background:var(--ag-bg);border-radius:14px;color:var(--ag-ink);`)}
-                />
-              ))}
+            <div style={css('margin-top:22px;text-align:center;color:var(--ag-label);font-size:13.5px;line-height:1.6;')}>
+              Didn’t get it? Check your spam folder, or{' '}
+              <a href="#" onClick={(e) => { e.preventDefault(); go('forgot'); }} style={linkStyle}>try another email</a>.
             </div>
 
-            {errorLine}
-
-            <button onClick={verify} disabled={busy} style={primaryStyle()}>
-              {busy ? 'Verifying…' : 'Verify code'}
-            </button>
-            <button onClick={() => go('forgot')} style={quietButton}>Use a different email</button>
-          </>
-        )}
-
-        {/* ─────────────── Forgot password: set the new one ─────────────── */}
-        {view === 'newpass' && (
-          <>
-            <div style={css('display:flex;flex-direction:column;gap:13px;margin-top:22px;')}>
-              <label style={labelStyle}>New password
-                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" autoFocus style={inputStyle} />
-                <span style={css('display:block;font-size:11.5px;font-weight:600;color:var(--ag-muted);margin-top:6px;')}>At least 8 characters.</span>
-              </label>
-              <label style={labelStyle}>Confirm new password
-                <input
-                  type="password"
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') void savePassword(); }}
-                  placeholder="••••••••"
-                  autoComplete="new-password"
-                  style={inputStyle}
-                />
-              </label>
-            </div>
-
-            {errorLine}
-
-            <button onClick={savePassword} disabled={busy} style={primaryStyle()}>
-              {busy ? 'Updating…' : 'Update password'}
-            </button>
+            <button onClick={() => go('signin')} style={primaryStyle()}>Back to sign in</button>
           </>
         )}
       </div>

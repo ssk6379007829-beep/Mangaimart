@@ -19,7 +19,7 @@ import { POLICY_TERMS } from '@/data/company';
 import { registerShiprocketPickup } from '@/data/shipments';
 import { joinAddressParts, pickupAddressIssue } from '@/lib/shiprocketAddress';
 import { CROP, useImageCropper } from '@/components/ui/ImageCropper';
-import { signInWithGoogle, friendlyAuthError, verifySignupOtp, resendSignupOtp } from '@/lib/authMethods';
+import { signInWithGoogle, friendlyAuthError, resendSignupConfirmation } from '@/lib/authMethods';
 import { ConsentCheckbox, ConsentNotice, PolicyLinks, CONSENT_REQUIRED } from '@/components/legal/Consent';
 import { GoogleIcon } from '@/components/ui/GoogleIcon';
 import { MfaStepUp } from '@/components/auth/MfaStepUp';
@@ -310,11 +310,16 @@ export function SellerOnboarding() {
   // submission (Seller Agreement + commission) each need explicit opt-in.
   const [accountConsent, setAccountConsent] = useState(false);
   const [sellerConsent, setSellerConsent] = useState(false);
-  // After account creation we verify the email with a 6-digit code (not a
-  // link), still on step 0. `otpEmail` is the address the code was sent to;
-  // `null` means we are still on the account form.
+  // Bumped when the user tries to continue/submit with the consent box unticked,
+  // so the checkbox shakes and scrolls into view rather than only firing a toast.
+  const [accountConsentNudge, setAccountConsentNudge] = useState(0);
+  const [sellerConsentNudge, setSellerConsentNudge] = useState(0);
+  // After account creation we confirm the email with a mailed LINK, still on
+  // step 0. `otpEmail` is the address the confirmation link was sent to; `null`
+  // means we are still on the account form. Opening the link lands on
+  // /auth/callback, which opens a session and routes the seller back here, where
+  // the loader advances to step 1 on its own.
   const [otpEmail, setOtpEmail] = useState<string | null>(null);
-  const [otpCode, setOtpCode] = useState('');
   const [step, setStep] = useState(1);
   // True once this boutique has a payout account saved. It gates the second
   // factor on step 6: there is nothing to steal until there is an account on
@@ -542,6 +547,7 @@ export function SellerOnboarding() {
       return;
     }
     if (!accountConsent) {
+      setAccountConsentNudge((n) => n + 1);
       showToast(CONSENT_REQUIRED);
       return;
     }
@@ -556,10 +562,11 @@ export function SellerOnboarding() {
         role: 'seller',
       });
       if (confirmationRequired) {
-        // Verify by code, in place, rather than bouncing out to a mailed link.
+        // Confirm via a mailed link. Supabase's default "Confirm signup" template
+        // is a link, so this needs no `{{ .Token }}` template edit; the link lands
+        // on /auth/callback, which routes the seller back into onboarding.
         setOtpEmail(account.email.trim());
-        setOtpCode('');
-        showToast('We’ve emailed you a 6-digit code — enter it to continue', 'info');
+        showToast('We’ve emailed a confirmation link — open it to continue', 'info');
       }
       // Otherwise email confirmation is off and there is a session now; the
       // loader takes over.
@@ -570,34 +577,18 @@ export function SellerOnboarding() {
     }
   };
 
-  /** Step 0's verify action — confirm the signup with the emailed code. */
-  const verifyAccountOtp = async () => {
-    if (!otpEmail) return;
-    if (!/^\d{6}$/.test(otpCode.trim())) {
-      showToast('Enter the 6-digit code from your email', 'warning');
-      return;
-    }
-    setBusy(true);
-    try {
-      // On success Supabase holds a session; the auth listener fires and the
-      // loader effect creates the draft boutique and moves to step 1.
-      await verifySignupOtp(otpEmail, otpCode);
-      setOtpEmail(null);
-      setOtpCode('');
-    } catch (e) {
-      showToast(e instanceof Error ? friendlyAuthError(e.message) : 'That code did not work', 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
-
+  /**
+   * Step 0's resend action — email the signup confirmation LINK again. When the
+   * seller opens it, /auth/callback opens a session, the auth listener fires, and
+   * the loader effect creates the draft boutique and moves to step 1.
+   */
   const resendAccountOtp = async () => {
     if (!otpEmail) return;
     try {
-      await resendSignupOtp(otpEmail);
-      showToast('A new code is on its way', 'info');
+      await resendSignupConfirmation(otpEmail);
+      showToast('A new confirmation link is on its way', 'info');
     } catch (e) {
-      showToast(e instanceof Error ? friendlyAuthError(e.message) : 'Could not resend the code', 'error');
+      showToast(e instanceof Error ? friendlyAuthError(e.message) : 'Could not resend the link', 'error');
     }
   };
 
@@ -663,6 +654,7 @@ export function SellerOnboarding() {
       return;
     }
     if (!sellerConsent) {
+      setSellerConsentNudge((n) => n + 1);
       showToast(CONSENT_REQUIRED);
       return;
     }
@@ -759,24 +751,16 @@ export function SellerOnboarding() {
         </div>
 
         {step === 0 && otpEmail && (
-          <SectionCard subtitle={`Enter the 6-digit code we emailed to ${otpEmail} to confirm your email and continue.`}>
-            <Field
-              label="6-digit code *"
-              value={otpCode}
-              onChange={(v) => setOtpCode(v.replace(/\D/g, '').slice(0, 6))}
-              placeholder="123456"
-              inputMode="numeric"
-              hint="Didn’t get it? Check spam, or resend below."
-            />
-            <div style={css('text-align:center;font-size:13px;color:var(--ag-muted);font-weight:600;')}>
-              Didn’t get the code?{' '}
+          <SectionCard subtitle={`Open the confirmation link we emailed to ${otpEmail} to confirm your account. This page continues on its own once you do.`}>
+            <div style={css('text-align:center;font-size:13px;color:var(--ag-muted);font-weight:600;line-height:1.6;')}>
+              Didn’t get it? Check your spam folder, or use{' '}
               <button
                 type="button"
                 onClick={resendAccountOtp}
                 style={css('border:none;background:none;color:var(--ag-crimson);font-weight:800;font-size:13px;cursor:pointer;padding:0;font-family:inherit;')}
               >
-                Resend
-              </button>
+                Resend link
+              </button>.
             </div>
           </SectionCard>
         )}
@@ -795,7 +779,7 @@ export function SellerOnboarding() {
               hint="At least 6 characters."
             />
 
-            <ConsentCheckbox checked={accountConsent} onChange={setAccountConsent} />
+            <ConsentCheckbox checked={accountConsent} onChange={setAccountConsent} attention={accountConsentNudge} />
 
             <div style={css('display:flex;align-items:center;gap:10px;')}>
               <span style={css('flex:1;height:1px;background:var(--ag-surface-3);')} />
@@ -862,7 +846,7 @@ export function SellerOnboarding() {
               {errors.logoUrl && <span style={css('display:block;margin-top:4px;font-size:12px;font-weight:700;color:var(--ag-danger-text);')}>{errors.logoUrl}</span>}
             </div>
 
-            <Field label="Boutique name *" value={form.name} onChange={(v) => set('name', v)} placeholder="Uzhamagal Boutique" error={errors.name} />
+            <Field label="Boutique name *" value={form.name} onChange={(v) => set('name', v)} placeholder="MangaiMart Boutique" error={errors.name} />
             <Field label="Owner name *" value={form.ownerName} onChange={(v) => set('ownerName', v)} placeholder="Lakshmi Priya" error={errors.ownerName} />
             <TextArea
               label="Boutique bio"
@@ -888,7 +872,7 @@ export function SellerOnboarding() {
               hint="Leave blank to reuse your mobile number. Offline bills are sent to buyers here."
             />
             <Field label="Email address *" value={form.email} onChange={(v) => set('email', v)} placeholder="you@boutique.com" inputMode="email" error={errors.email} />
-            <Field label="Instagram username" value={form.instagram} onChange={(v) => set('instagram', v)} placeholder="uzhamagal.boutique" hint="Without the @ — shown as a shortcut on your buyer-facing profile." />
+            <Field label="Instagram username" value={form.instagram} onChange={(v) => set('instagram', v)} placeholder="mangaimart.boutique" hint="Without the @ — shown as a shortcut on your buyer-facing profile." />
           </SectionCard>
         )}
 
@@ -1106,7 +1090,7 @@ export function SellerOnboarding() {
 
         {step === 6 && !editMode && (
           <div style={css('margin-top:16px;background:var(--ag-surface);border:1px solid var(--ag-surface-3);border-radius:16px;padding:16px 18px;box-shadow:0 16px 38px -30px rgba(107,20,54,.6);')}>
-            <ConsentCheckbox checked={sellerConsent} onChange={setSellerConsent}>
+            <ConsentCheckbox checked={sellerConsent} onChange={setSellerConsent} attention={sellerConsentNudge}>
               I have read and agree to the Seller Agreement, <PolicyLinks />, including the {POLICY_TERMS.commissionPct}% platform commission and payout terms.
             </ConsentCheckbox>
           </div>
@@ -1118,12 +1102,9 @@ export function SellerOnboarding() {
             <button
               type="button"
               // Step 1 has no Back during first-time setup: the account above it
-              // already exists and cannot be re-entered. In edit mode the button
-              // instead leaves the wizard back to the profile hub.
-              // Step 1 has no Back during first-time setup: the account above it
-              // already exists and cannot be re-entered. On the OTP screen, Back
-              // returns to the account form. In edit mode the button instead
-              // leaves the wizard back to the profile hub.
+              // already exists and cannot be re-entered. On the "confirm your
+              // email" screen, Back returns to the account form. In edit mode the
+              // button instead leaves the wizard back to the profile hub.
               onClick={() => (step === 0 ? (otpEmail ? setOtpEmail(null) : navigate('/')) : step === 1 ? navigate('/seller/profile') : goTo(step - 1))}
               disabled={busy}
               style={css('height:54px;padding:0 22px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-crimson);border-radius:15px;font-weight:800;font-size:15px;cursor:pointer;font-family:inherit;')}
@@ -1133,16 +1114,16 @@ export function SellerOnboarding() {
           )}
           <button className="agx-con-btn"
             type="button"
-            onClick={step === 0 ? (otpEmail ? verifyAccountOtp : createAccount) : step === 6 ? (editMode ? saveEdits : submit) : saveAndNext}
+            onClick={step === 0 ? (otpEmail ? resendAccountOtp : createAccount) : step === 6 ? (editMode ? saveEdits : submit) : saveAndNext}
             disabled={busy || uploading != null}
             style={css(`flex:1;height:54px;border:none;border-radius:15px;color:#fff;font-weight:800;font-size:16px;cursor:${busy ? 'default' : 'pointer'};opacity:${busy || uploading ? 0.7 : 1};box-shadow:0 14px 30px -14px rgba(214,51,108,.8);display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit;`)}
           >
             {uploading
               ? 'Uploading image…'
               : busy
-                ? step === 0 ? (otpEmail ? 'Verifying…' : 'Creating account…') : 'Saving…'
-                : step === 0 ? (otpEmail ? 'Verify & continue' : 'Create account & continue') : step === 6 ? (editMode ? 'Save changes' : 'Submit for verification') : 'Save & continue'}
-            {!busy && !uploading && <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:20px;")}>{step === 6 ? (editMode ? 'check' : 'send') : 'arrow_forward'}</span>}
+                ? step === 0 ? (otpEmail ? 'Sending…' : 'Creating account…') : 'Saving…'
+                : step === 0 ? (otpEmail ? 'Resend link' : 'Create account & continue') : step === 6 ? (editMode ? 'Save changes' : 'Submit for verification') : 'Save & continue'}
+            {!busy && !uploading && <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:20px;")}>{step === 6 ? (editMode ? 'check' : 'send') : (step === 0 && otpEmail ? 'mail' : 'arrow_forward')}</span>}
           </button>
         </div>
       </div>

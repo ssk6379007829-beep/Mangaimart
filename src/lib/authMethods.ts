@@ -8,13 +8,16 @@ import { supabase } from '@/lib/supabase';
  * profile syncs via the `profiles` table and their orders via the `buyer_id`
  * RLS policy.
  *
- * The emailed 6-digit code is no longer a sign-in method of its own — it backs
- * the forgot-password flow only (see `sendPasswordResetCode`). No SMS provider
- * is needed; Supabase sends these over email out of the box.
+ * Email auth here is entirely LINK-based — there are no 6-digit codes. Signup
+ * confirmation and forgot-password both send a link that lands on
+ * `/auth/callback` or `/auth/reset-password`; neither needs a `{{ .Token }}`
+ * email template, because Supabase's default confirm/recovery templates are
+ * links out of the box.
  *
  * Config: Google needs the Google provider enabled in the Supabase dashboard
  * (Auth → Providers → Google) with this app's URL added to the allowed redirect
- * URLs. Email OTP works with the default email provider.
+ * URLs. The confirm-signup and recovery redirect URLs must be allow-listed
+ * (Auth → URL Configuration).
  */
 
 /** Shown whenever the cause is ours, not something the user can act on. */
@@ -108,54 +111,13 @@ export function clearPendingOAuthRole(): void {
 }
 
 /**
- * Email a 6-digit code for the "forgot password" flow.
- *
- * Deliberately the OTP email rather than `resetPasswordForEmail`: the recovery
- * template is Supabase's default (a link), while the OTP template already
- * carries `{{ .Token }}` — which is why the code flow works today. Using it
- * means no dashboard template edit is needed for reset-by-code.
- *
- * `shouldCreateUser:false` so typing an unknown address into a *reset* form
- * cannot quietly mint an account.
+ * Re-send the signup confirmation EMAIL (a link) to an address that signed up but
+ * hasn't confirmed yet. Opening the link lands on /auth/callback, which routes
+ * the new seller back into onboarding. Confirmation is link-based — the project's
+ * "Confirm signup" template is Supabase's default link, so no `{{ .Token }}`
+ * template edit is required.
  */
-export async function sendPasswordResetCode(email: string): Promise<void> {
-  const { error } = await supabase.auth.signInWithOtp({
-    email: email.trim(),
-    options: { shouldCreateUser: false, emailRedirectTo: `${window.location.origin}/auth/callback` },
-  });
-  // With signups off, GoTrue answers an unknown address with "Signups not
-  // allowed for otp" / "User not found". Surfacing that would turn the form into
-  // an email-enumeration oracle, so it is swallowed: the caller shows the same
-  // "if that email has an account…" copy either way and an address with no
-  // account simply never receives a code.
-  if (error && !/signups? not allowed|user not found/i.test(error.message)) {
-    throw new Error(friendlyAuthError(error.message));
-  }
-}
-
-/** Verify the emailed code; on success the browser holds a session. */
-export async function verifyEmailOtp(email: string, code: string): Promise<void> {
-  const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' });
-  if (error) throw new Error(friendlyAuthError(error.message));
-}
-
-/**
- * Confirm a brand-new signup with the 6-digit code emailed by `supabase.auth
- * .signUp` (type `'signup'`, not `'email'`). On success the browser holds a
- * session for the new account and the onboarding loader takes over.
- *
- * NOTE: the code only reaches the seller if the project's "Confirm signup" email
- * template carries `{{ .Token }}` — the same token the magic-link template
- * already uses for the reset-by-code flow. Without it the email is link-only and
- * there is no code to type.
- */
-export async function verifySignupOtp(email: string, code: string): Promise<void> {
-  const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'signup' });
-  if (error) throw new Error(friendlyAuthError(error.message));
-}
-
-/** Re-send the signup confirmation code to an address that hasn't confirmed yet. */
-export async function resendSignupOtp(email: string): Promise<void> {
+export async function resendSignupConfirmation(email: string): Promise<void> {
   const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim() });
   if (error) throw new Error(friendlyAuthError(error.message));
 }
