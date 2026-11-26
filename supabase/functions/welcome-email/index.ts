@@ -15,13 +15,13 @@
  * hand after clearing the marker.
  *
  * WHO MAY CALL IT
- * The service role, and nothing else. The bearer token is compared against
- * SUPABASE_SERVICE_ROLE_KEY directly rather than decoded, because the only
- * legitimate caller already holds that exact key — there is no second
- * service-role identity to distinguish, so a string compare is both stricter
- * and harder to get wrong than trusting a parsed `role` claim. Without this the
- * gateway's own JWT check would happily admit any signed-in buyer, and mailing
- * an arbitrary account id is a nuisance vector.
+ * A service_role caller, and nothing else — see the auth block in the handler
+ * for the full reasoning. In brief: with verify_jwt ON the gateway has already
+ * verified the bearer, so we accept either an exact match to the injected
+ * service key or a gateway-verified JWT whose role is `service_role`. (Until the
+ * 2026-11 new-API-keys migration this was a plain string compare against
+ * SUPABASE_SERVICE_ROLE_KEY; that silently broke once the platform began
+ * injecting an `sb_secret_` key while the webhook still sends the legacy JWT.)
  *
  * EXACTLY ONCE
  * `profiles.welcome_email_sent_at` is the lock, not a log. The claim is a
@@ -51,8 +51,9 @@
  * DEPLOY
  *   supabase functions deploy welcome-email
  *   supabase secrets set RESEND_API_KEY=... EMAIL_FROM=... APP_URL=...
- * Leave JWT verification ON — the webhook sends the service-role key as its
- * Authorization header, so the gateway check and the compare above agree.
+ * Leave JWT verification ON — the handler's auth check relies on the gateway
+ * having already verified the bearer (see that block). Turning it off would make
+ * the decoded role claim attacker-forgeable.
  */
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
@@ -332,11 +333,39 @@ Deno.serve(async (req) => {
   const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
   if (!serviceKey || !supabaseUrl) return json({ error: 'Function is not configured' }, 500);
 
-  // The caller must BE the service role. See the header comment: the gateway's
-  // JWT check alone would admit any signed-in buyer.
+  // The caller must present a service_role credential.
+  //
+  // KEY-SYSTEM MIGRATION (2026-11): this project moved to Supabase's new API
+  // keys, so the platform now injects SUPABASE_SERVICE_ROLE_KEY as an
+  // `sb_secret_...` value, while the Database Webhook that calls this function
+  // still carries the legacy `service_role` JWT. A raw string compare of the two
+  // can never match again, so the old check 403'd every real webhook delivery
+  // (silently — a webhook is fire-and-forget) and no welcome ever went out.
+  //
+  // verify_jwt stays ON (see the DEPLOY note in the header). That means
+  // Supabase's gateway has already cryptographically verified the bearer against
+  // the project's JWT secret before this code runs, so its `role` claim is
+  // trustworthy. We authorise when EITHER the bearer exactly equals the injected
+  // service key (covers an `sb_secret_` caller, e.g. a future webhook) OR the
+  // gateway-verified JWT's role is `service_role` (covers the current webhook).
+  // A signed-in buyer's token has role `authenticated` and anon has `anon`;
+  // neither passes. This safety rests entirely on verify_jwt being ON — do NOT
+  // turn it off, or the decoded role claim becomes attacker-forgeable.
   const auth = req.headers.get('Authorization') ?? '';
   const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  if (bearer !== serviceKey) return json({ error: 'Forbidden' }, 403);
+  const jwtRole = (token: string): string => {
+    const parts = token.split('.');
+    if (parts.length !== 3) return '';
+    try {
+      const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const payload = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)));
+      return typeof payload?.role === 'string' ? payload.role : '';
+    } catch {
+      return '';
+    }
+  };
+  const authorized = (bearer.length > 0 && bearer === serviceKey) || jwtRole(bearer) === 'service_role';
+  if (!authorized) return json({ error: 'Forbidden' }, 403);
 
   let body: Record<string, unknown>;
   try {
