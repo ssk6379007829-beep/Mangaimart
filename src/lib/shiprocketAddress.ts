@@ -40,3 +40,30 @@ export function pickupAddressIssue(addressLine: string | null | undefined): stri
 export function joinAddressParts(parts: (string | null | undefined)[]): string {
   return parts.map((p) => (p ?? '').trim()).filter(Boolean).join(', ');
 }
+
+/**
+ * Best-effort reverse of `joinAddressParts` for RE-SEEDING the guided entry
+ * fields from a previously stored address line. Only the one joined string is
+ * persisted, so the original parts can't be recovered perfectly — but a saved
+ * line almost always begins with the door/house number (that is the order the
+ * forms join in), so this pulls a leading door number into its own field and
+ * leaves the remainder as street & area. Without this, reopening the form dumps
+ * the WHOLE saved line (door number included) into the street box and shows an
+ * empty door box.
+ *
+ * Deliberately conservative: it only treats the first comma-separated segment as
+ * a door number when it actually looks like one (contains a digit and is short),
+ * so a street with no door ("Gandhi Street, Gandhipuram") is never mis-split.
+ * Re-joining the result reproduces the original string byte-for-byte, so simply
+ * reopening and saving changes nothing. Any landmark folds into street & area —
+ * it can't be told apart from the street once joined, and was optional anyway.
+ */
+export function splitAddressParts(address: string | null | undefined): { door: string; street: string } {
+  const full = (address ?? '').trim();
+  const comma = full.indexOf(',');
+  if (comma === -1) return { door: '', street: full };
+  const head = full.slice(0, comma).trim();
+  const rest = full.slice(comma + 1).trim();
+  const looksLikeDoor = head.length > 0 && head.length <= 15 && /\d/.test(head);
+  return looksLikeDoor ? { door: head, street: rest } : { door: '', street: full };
+}

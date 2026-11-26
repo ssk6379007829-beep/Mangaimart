@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { waitUntil } from '@vercel/functions';
 import { serviceClient } from './_supabase.js';
 import { computeCartPricing, loadBuyerPlace, loadCoupon, loadShopTerms, redeemCoupon, undeliverableShop } from './_pricing.js';
 import { verifyDeliveryQuotes } from './_deliveryQuote.js';
@@ -77,15 +78,8 @@ async function refundPayment(razorpay, paymentId, amountPaise) {
  * best-effort: the order is already placed and paid for by the time this runs,
  * so a failure here is logged, never surfaced.
  */
-async function notifySellers(supabase, created, guestFields) {
+async function notifySellers(supabase, created, guestFields, boutiques) {
   try {
-    const boutiqueIds = [...new Set(created.map((o) => o.boutique_id))];
-    const { data: boutiques, error } = await supabase
-      .from('boutiques')
-      .select('id, owner_id')
-      .in('id', boutiqueIds);
-    if (error) throw error;
-
     const ownerById = new Map((boutiques ?? []).map((b) => [b.id, b.owner_id]));
     const rows = [];
     for (const order of created) {
@@ -132,18 +126,10 @@ async function notifySellers(supabase, created, guestFields) {
  * Best-effort, like everything past the order write: the buyer has already paid,
  * so a queueing failure is logged and never surfaced.
  */
-async function queueWhatsApp(supabase, created, guestFields, buyerId) {
+async function queueWhatsApp(supabase, created, guestFields, buyerId, boutiques) {
   try {
-    const boutiqueIds = [...new Set(created.map((o) => o.boutique_id))];
-    // The service-role client reads `whatsapp` and `phone` straight through the
-    // column grants 0021/0073 put on boutiques — the same reason emailOrderPlaced
-    // below can read `email`. Columns are named, never select('*').
-    const { data: boutiques, error } = await supabase
-      .from('boutiques')
-      .select('id, name, owner_id, whatsapp, phone')
-      .in('id', boutiqueIds);
-    if (error) throw error;
-
+    // `whatsapp`, `phone` and `email` come through the column grants 0021/0073
+    // put on boutiques — read once by the caller and passed in, never select('*').
     const byId = new Map((boutiques ?? []).map((b) => [b.id, b]));
     const buyerFirstName = String(guestFields.guest_name || '').trim().split(/\s+/)[0] || 'there';
 
@@ -235,20 +221,12 @@ async function queueWhatsApp(supabase, created, guestFields, buyerId) {
  * shops becomes two orders that ship, track and can be cancelled separately, so
  * one combined receipt would misrepresent what the buyer actually has.
  */
-async function emailOrderPlaced(supabase, created, guestFields, buyerEmail) {
+async function emailOrderPlaced(created, guestFields, buyerEmail, boutiques) {
   try {
-    // Seller addresses come from the service-role client, which bypasses the
-    // column grants migration 0073 put on `boutiques.email` — the whole reason
-    // those columns are safe to withhold from the browser.
-    const boutiqueIds = [...new Set(created.map((o) => o.boutique_id))];
-    const { data: boutiques } = await supabase
-      .from('boutiques')
-      // Named columns, never `select('*')` — `boutiques` has had column-level
-      // grants since the onboarding work. The address and logo are here for the
-      // buyer's receipt: it bills FROM the shop, so it has to say who the shop
-      // is and show their mark.
-      .select('id, name, email, logo_url, address_line, city, district, state, pincode')
-      .in('id', boutiqueIds);
+    // Seller addresses come from the service-role client (bypassing the column
+    // grants migration 0073 put on `boutiques.email`), read once by the caller
+    // and passed in. The address and logo are here for the buyer's receipt: it
+    // bills FROM the shop, so it has to say who the shop is and show their mark.
     const shopById = new Map((boutiques ?? []).map((b) => [b.id, b]));
 
     const buyerName = guestFields.guest_name || 'there';
@@ -528,17 +506,17 @@ export default async function handler(req, res) {
     // Per-boutique goods totals drive coupon pricing: a seller coupon discounts
     // only its own boutique's slice, a platform coupon the whole cart.
     const groupTotals = Object.fromEntries([...groups.values()].map((g) => [g.boutique_id, g.total]));
-    const coupon = await loadCoupon(supabase, couponCode);
-    // Each boutique's own delivery terms (migration 0076). Read once per request
-    // so every total below — the fees stored on each order, the paise the payment
-    // is checked against — is priced from one consistent snapshot even if a
-    // seller saves their settings mid-checkout.
-    const shops = await loadShopTerms(supabase, [...groups.keys()]);
-    // Where the parcel is going decides which of each shop's zone rates applies
-    // (migration 0077). Read from the SAME `pincodes` directory the browser
-    // quoted from, so the two derive the same zone and the amount binding below
-    // does not reject a correctly-priced payment.
-    const buyerPlace = await loadBuyerPlace(supabase, guest?.pincode);
+    // These three reads are independent of one another, so they go out together
+    // rather than as three serial round trips — the coupon, each boutique's own
+    // delivery terms (migration 0076, one consistent snapshot even if a seller
+    // saves mid-checkout), and the buyer's zone from the SAME `pincodes`
+    // directory the browser quoted from (migration 0077), so the two derive the
+    // same zone and the amount binding below does not reject a correct payment.
+    const [coupon, shops, buyerPlace] = await Promise.all([
+      loadCoupon(supabase, couponCode),
+      loadShopTerms(supabase, [...groups.keys()]),
+      loadBuyerPlace(supabase, guest?.pincode),
+    ]);
 
     // Live Shiprocket quotes (migration 0120), re-verified here exactly as
     // create-order.js verified them when it opened checkout — same secret, same
@@ -863,10 +841,34 @@ export default async function handler(req, res) {
     }
 
     // The order exists — everything from here is best-effort and must never
-    // turn a successful checkout into an error for the buyer.
-    await notifySellers(supabase, created, guestFields);
-    await emailOrderPlaced(supabase, created, guestFields, buyerEmail);
-    await queueWhatsApp(supabase, created, guestFields, buyerId);
+    // turn a successful checkout into an error for the buyer. It must also not
+    // make them WAIT: the receipt email alone is a multi-second SMTP send, and
+    // the confirmation page has nothing to learn from any of it. So it is handed
+    // to waitUntil — the response returns now, and Vercel keeps the function
+    // alive until this settles, so nothing is dropped (what a bare fire-and-
+    // forget would risk once the instance is frozen after the response).
+    // The three jobs read the same boutiques rows, so they are fetched ONCE here
+    // and shared, and run in parallel — a failure in one can't sink the others.
+    waitUntil((async () => {
+      try {
+        const boutiqueIds = [...new Set(created.map((o) => o.boutique_id))];
+        // One named-column read (never select('*') — boutiques has column-level
+        // grants) feeding all three jobs: owner for the bell, name/phone/whatsapp
+        // for WhatsApp, email/address/logo for the receipt.
+        const { data: boutiques } = await supabase
+          .from('boutiques')
+          .select('id, owner_id, name, whatsapp, phone, email, logo_url, address_line, city, district, state, pincode')
+          .in('id', boutiqueIds);
+        await Promise.allSettled([
+          notifySellers(supabase, created, guestFields, boutiques ?? []),
+          emailOrderPlaced(created, guestFields, buyerEmail, boutiques ?? []),
+          queueWhatsApp(supabase, created, guestFields, buyerId, boutiques ?? []),
+        ]);
+      } catch (err) {
+        // The buyer already has their confirmation; this tail is pure follow-up.
+        console.error('place-order: deferred post-order work failed (order still placed):', err?.message ?? err);
+      }
+    })());
 
     return res.status(200).json({
       orders: created.map(({ id, order_number, boutique_id, total, platform_discount, shipping_fee, created_at }) => ({

@@ -81,7 +81,7 @@ export const STATUS_STAGE: Record<OrderStatus, number> = {
   pending: 0,
   accepted: 1,
   shipped: 3,
-  delivered: 6,
+  delivered: 7,
   rejected: 0,
   cancelled: 0,
 };
@@ -102,17 +102,23 @@ export type ScanStage = 'pickup_pending' | 'picked_up' | 'in_transit' | 'out_for
  * `packed_at` also lifts an accepted order to "Packed" without a status of its
  * own; packing is a real event that deliberately isn't a lifecycle status.
  *
+ * A `pickup_pending` scan lifts a shipped order to "Awaiting pickup" (stage 4)
+ * but no further — the courier is on its way to collect, the parcel is still
+ * with the boutique, so it must not read as "In Transit". Only `picked_up` /
+ * `in_transit` reach stage 5.
+ *
  * RTO and failed scans do NOT advance anything — the parcel is going backwards,
  * and the screen says so separately rather than pretending it progressed.
  */
 export function trackStage(order: PlacedOrder, lastScan?: string | null): number {
-  if (order.status === 'delivered') return 6;
+  if (order.status === 'delivered') return 7;
   let stage = STATUS_STAGE[order.status];
   if (order.packedAt && stage < 2) stage = 2;
-  if (order.outForDeliveryAt) return Math.max(stage, 5);
+  if (order.outForDeliveryAt) return Math.max(stage, 6);
   const scan = (lastScan ?? '') as ScanStage;
-  if (scan === 'out_for_delivery') return Math.max(stage, 5);
-  if (scan === 'in_transit' || scan === 'picked_up') return Math.max(stage, 4);
+  if (scan === 'out_for_delivery') return Math.max(stage, 6);
+  if (scan === 'in_transit' || scan === 'picked_up') return Math.max(stage, 5);
+  if (scan === 'pickup_pending') return Math.max(stage, 4);
   return stage;
 }
 

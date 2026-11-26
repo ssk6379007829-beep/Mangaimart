@@ -169,21 +169,28 @@ export function TrackOrder() {
   };
 
   // A real timestamp per step. 0042 gives accepted/shipped/delivered, 0063 gives
-  // packed, and 0067's courier scans give the two in between. "In Transit" has
-  // no column of its own — it IS the scan — so it reads the first movement scan
-  // rather than inventing a time.
-  const firstMovement = [...(scans ?? [])]
-    .filter((s) => s.stage === 'in_transit' || s.stage === 'picked_up')
-    .sort((a, b) => new Date(a.occurred_at ?? a.created_at).getTime() - new Date(b.occurred_at ?? b.created_at).getTime())[0];
+  // packed, and 0067's courier scans give the three in between (pickup widened in
+  // 0116). "Awaiting pickup" and "In Transit" have no column of their own — they
+  // ARE the scan — so they read a scan time rather than inventing one.
+  const earliestScan = (...stages: string[]) =>
+    [...(scans ?? [])]
+      .filter((s) => stages.includes(s.stage))
+      .sort((a, b) => new Date(a.occurred_at ?? a.created_at).getTime() - new Date(b.occurred_at ?? b.created_at).getTime())[0];
+  // "Awaiting pickup" is the first pickup_pending scan; "In Transit" IS the
+  // first movement scan (it has no column of its own) — read a time rather than
+  // inventing one.
+  const firstPickup = earliestScan('pickup_pending');
+  const firstMovement = earliestScan('in_transit', 'picked_up');
 
   const stageTimes: Record<number, string | null | undefined> = {
     0: order.placedAt,
     1: order.acceptedAt,
     2: order.packedAt,
     3: order.shippedAt,
-    4: firstMovement?.occurred_at ?? firstMovement?.created_at,
-    5: order.outForDeliveryAt,
-    6: order.deliveredAt,
+    4: firstPickup?.occurred_at ?? firstPickup?.created_at,
+    5: firstMovement?.occurred_at ?? firstMovement?.created_at,
+    6: order.outForDeliveryAt,
+    7: order.deliveredAt,
   };
   /**
    * Does anything actually report on this parcel's journey?
@@ -197,7 +204,10 @@ export function TrackOrder() {
    * → Packed → Shipped → Delivered is the whole truth for a manual parcel.
    */
   const hasCourierFeed = (scans ?? []).length > 0 || !!order.outForDeliveryAt;
-  const COURIER_ONLY_STEPS = [4, 5];
+  // "Awaiting pickup", "In Transit" and "Out for Delivery" only exist when a
+  // courier is streaming scans. A manually-shipped parcel drops all three:
+  // Placed → Confirmed → Packed → Shipped → Delivered is its whole truth.
+  const COURIER_ONLY_STEPS = [4, 5, 6];
 
   const steps = TRACK_STAGES
     .map((st, i) => ({ ...st, index: i }))

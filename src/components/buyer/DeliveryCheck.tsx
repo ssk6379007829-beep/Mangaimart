@@ -94,7 +94,9 @@ export function DeliveryCheck({
       <label style={css('display:block;font-size:12px;font-weight:800;color:var(--ag-label);letter-spacing:.02em;')}>
         Deliver to
       </label>
-      <div style={css('display:flex;gap:8px;margin-top:7px;')}>
+      {/* No button: the pincode field stays editable, so changing it is just a
+          tap-and-retype. It auto-checks the moment six digits are entered. */}
+      <div style={css('margin-top:7px;')}>
         <input
           value={typed}
           onChange={(e) => {
@@ -108,17 +110,8 @@ export function DeliveryCheck({
           inputMode="numeric"
           autoComplete="postal-code"
           aria-label="Delivery pincode"
-          style={css('flex:1;min-width:0;border:1.5px solid var(--ag-border);background:var(--ag-surface-2);border-radius:12px;padding:0 13px;height:44px;font-size:14px;font-weight:700;letter-spacing:.06em;color:var(--ag-ink);box-sizing:border-box;font-family:inherit;')}
+          style={css('display:block;width:100%;min-width:0;border:1.5px solid var(--ag-border);background:var(--ag-surface-2);border-radius:12px;padding:0 13px;height:44px;font-size:14px;font-weight:700;letter-spacing:.06em;color:var(--ag-ink);box-sizing:border-box;font-family:inherit;')}
         />
-        {typed && (
-          <button
-            type="button"
-            onClick={() => { setTyped(''); setDeliveryPincode(''); }}
-            style={css('flex:none;padding:0 14px;height:44px;border-radius:12px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-muted);font-weight:800;font-size:12.5px;cursor:pointer;font-family:inherit;')}
-          >
-            Change
-          </button>
-        )}
       </div>
 
       {!typed && (
@@ -126,7 +119,16 @@ export function DeliveryCheck({
           Enter your pincode to see the exact delivery charge.
         </div>
       )}
-      {(checking || liveChecking) && <div style={css(line + 'color:var(--ag-muted);')}>Checking…</div>}
+      {(checking || liveChecking) && (
+        <div style={css(line + 'color:var(--ag-muted);display:flex;align-items:center;gap:8px;')}>
+          <span
+            aria-hidden="true"
+            className="agx-search-spin"
+            style={css('width:13px;height:13px;flex:none;border-radius:50%;border:2px solid var(--ag-border);border-top-color:var(--ag-crimson);')}
+          />
+          <span>Finding delivery options for {typed}…</span>
+        </div>
+      )}
 
       {showing && undeliverable && (
         <div style={css(line + 'color:var(--ag-danger-text);')}>

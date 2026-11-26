@@ -6,7 +6,7 @@ import { useCatalog } from '@/state/CatalogContext';
 import { usePageMeta } from '@/lib/pageMeta';
 import { checkServiceability } from '@/data/shipments';
 import { nameOk, phoneOk, pincodeOk } from '@/lib/buyerDetails';
-import { joinAddressParts, pickupAddressIssue } from '@/lib/shiprocketAddress';
+import { joinAddressParts, pickupAddressIssue, splitAddressParts } from '@/lib/shiprocketAddress';
 import { fmt } from '@/data/demo';
 import { deliveryEtaLabel, shopFulfilment } from '@/lib/fulfilment';
 
@@ -21,10 +21,11 @@ export function Checkout() {
   // street & area, and an optional landmark — which combine into the one
   // `guest.address` string that is stored and sent to the courier. Splitting the
   // input (not the storage) is what gets a buyer to include a door number, which
-  // is what makes a parcel findable. Existing text (a returning buyer) seeds the
-  // street field so nothing they already typed is lost.
-  const [addrDoor, setAddrDoor] = useState('');
-  const [addrStreet, setAddrStreet] = useState(() => guest.address ?? '');
+  // is what makes a parcel findable. A returning buyer's saved address is split
+  // back into its parts so the door number re-seeds the Door box rather than
+  // being dumped into Street (see `splitAddressParts`).
+  const [addrDoor, setAddrDoor] = useState(() => splitAddressParts(guest.address).door);
+  const [addrStreet, setAddrStreet] = useState(() => splitAddressParts(guest.address).street);
   const [addrLandmark, setAddrLandmark] = useState('');
   useEffect(() => {
     setGuest({ address: joinAddressParts([addrDoor, addrStreet, addrLandmark]) });

@@ -622,7 +622,11 @@ export function mapForwardStage(statusId: string): ScanStage {
     // Back on the road after a failed attempt.
     case 'reopen_ndr':
       return 'in_transit';
-    case 'new': case 'recd_at_fwd_hub':
+    // Booked / manifested but NOT yet collected — the parcel is still with the
+    // seller, so it must read as "awaiting pickup", not "in transit".
+    case 'new':
+      return 'pickup_pending';
+    case 'recd_at_fwd_hub':
       return 'in_transit';
     default:
       // A status we have never seen must never be the thing that moves an
@@ -648,7 +652,11 @@ export function mapHyperlocalStage(status: string): ScanStage {
       return 'rto';
     case 'CANCELLED': case 'CANCELLED_BY_CUSTOMER':
       return 'failed';
-    // ACCEPTED, ALLOTTED, ARRIVED — the rider is on their way to the shop.
+    // The rider is on their way to the shop, or at it — the parcel is not
+    // collected yet, so "awaiting pickup", not "in transit". (DISPATCHED above
+    // is the actual collection.)
+    case 'ACCEPTED': case 'ALLOTTED': case 'ARRIVED':
+      return 'pickup_pending';
     default:
       return 'in_transit';
   }

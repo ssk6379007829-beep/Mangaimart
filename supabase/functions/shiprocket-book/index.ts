@@ -302,23 +302,29 @@ Deno.serve(async (req: Request) => {
       // does not invalidate a parcel that already has an AWB.
     }
 
-    try {
-      // Honour the seller's pickup date when they chose one. Shiprocket takes a
-      // date (YYYY-MM-DD), not a time slot — a valid ISO date is forwarded as
-      // `pickup_date`, anything else is omitted so their validator schedules the
-      // soonest pickup rather than rejecting a malformed field.
-      const pickupDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
-      await srFetch(token, '/courier/generate/pickup', {
-        method: 'POST',
-        body: {
-          shipment_id: [created.shipment_id],
-          ...(pickupDate ? { pickup_date: [pickupDate] } : {}),
-        },
-      });
-    } catch (_e) {
-      // Pickup can be requested later from their panel; some couriers schedule
-      // it automatically. Never worth failing a booked parcel over.
-    }
+    // Honour the seller's pickup date when they chose one. Shiprocket takes a
+    // date (YYYY-MM-DD), not a time slot — a valid ISO date is forwarded as
+    // `pickup_date`, anything else is omitted so their validator schedules the
+    // soonest pickup rather than rejecting a malformed field.
+    //
+    // This is deferred, not awaited: its result is discarded, so making the
+    // seller wait for one more Shiprocket round trip before "Booking…" clears
+    // buys them nothing. EdgeRuntime.waitUntil keeps the worker alive until it
+    // settles after the response; where that global is absent it is fired and
+    // its failures swallowed, exactly as the old awaited version did — pickup
+    // can always be requested later from the Shiprocket panel, and some couriers
+    // schedule it automatically, so it is never worth failing a booked parcel.
+    const pickupDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+    const pickupTask = srFetch(token, '/courier/generate/pickup', {
+      method: 'POST',
+      body: {
+        shipment_id: [created.shipment_id],
+        ...(pickupDate ? { pickup_date: [pickupDate] } : {}),
+      },
+    }).catch(() => { /* requested later from their panel; best-effort */ });
+    // deno-lint-ignore no-explicit-any
+    const edgeRuntime = (globalThis as any).EdgeRuntime;
+    if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(pickupTask);
 
     // ── Record it, then ship it ─────────────────────────────────────────────
     const { error: shipErr } = await db.from('shipments').insert({

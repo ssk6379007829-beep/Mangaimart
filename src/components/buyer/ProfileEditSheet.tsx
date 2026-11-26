@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { css } from '@/lib/css';
 import { useShop } from '@/state/ShopContext';
 import { nameOk, phoneOk, pincodeOk } from '@/lib/buyerDetails';
-import { joinAddressParts, pickupAddressIssue } from '@/lib/shiprocketAddress';
+import { joinAddressParts, pickupAddressIssue, splitAddressParts } from '@/lib/shiprocketAddress';
 
 /**
  * Edit the buyer's saved profile — name, mobile, city and delivery address.
@@ -28,10 +28,11 @@ export function ProfileEditSheet({
   // Delivery address is captured in three guided parts — door/house number,
   // street & area, optional landmark — exactly as checkout does (see
   // `Checkout.tsx`), so both screens collect it the same way. Only the joined
-  // string is stored (`guest.address`); an existing buyer's saved address seeds
-  // the street field so nothing they already typed is lost.
-  const [addrDoor, setAddrDoor] = useState('');
-  const [addrStreet, setAddrStreet] = useState(guest.address ?? '');
+  // string is stored (`guest.address`); a returning buyer's saved address is
+  // split back into its parts so the door number lands in the Door box and not
+  // the Street box (see `splitAddressParts`).
+  const [addrDoor, setAddrDoor] = useState(() => splitAddressParts(guest.address).door);
+  const [addrStreet, setAddrStreet] = useState(() => splitAddressParts(guest.address).street);
   const [addrLandmark, setAddrLandmark] = useState('');
   const [pincode, setPincode] = useState(guest.pincode);
   const [touched, setTouched] = useState(false);

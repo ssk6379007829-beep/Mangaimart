@@ -60,20 +60,40 @@ const RELOADED_KEY = 'agx:chunk-reloaded';
  * The fix is the reload they would have done themselves — so do it for them,
  * but only once per session, so a genuinely broken chunk becomes a visible
  * error instead of an infinite reload loop.
+ *
+ * Returns true when it actually triggered a reload, false when it declined
+ * because this session already reloaded once. The caller (RouteErrorBoundary)
+ * uses that to choose between a calm "updating…" placeholder and a clean
+ * "couldn't update" card — neither of which is the raw error dump a stale
+ * chunk used to surface.
  */
-export function recoverFromStaleChunk(): void {
-  if (typeof window === 'undefined') return;
+export function recoverFromStaleChunk(): boolean {
+  if (typeof window === 'undefined') return false;
   try {
-    if (sessionStorage.getItem(RELOADED_KEY)) return;
+    if (sessionStorage.getItem(RELOADED_KEY)) return false;
     sessionStorage.setItem(RELOADED_KEY, String(Date.now()));
   } catch {
     // Private mode with storage disabled: one reload attempt is still better
     // than a blank screen, and the failure mode is bounded by the user leaving.
   }
   window.location.reload();
+  return true;
 }
 
 const STALE_CHUNK_RE = /dynamically imported module|Importing a module script failed|error loading dynamically imported module|Failed to fetch/i;
+
+/**
+ * True when an error is a code-split chunk that failed to load — overwhelmingly
+ * a tab running a build the latest deploy has since deleted from the CDN, not a
+ * bug in the page. Centralised here so the global listeners below and the
+ * render-time RouteErrorBoundary agree on what counts, and so the boundary can
+ * self-heal the exact failures these listeners were meant to catch but miss
+ * when React swallows the rejection into a render error instead.
+ */
+export function isStaleChunkError(err: unknown): boolean {
+  const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err ?? '');
+  return STALE_CHUNK_RE.test(message);
+}
 
 /**
  * Installs the two listeners that catch a stale-chunk failure: Vite's own
@@ -89,8 +109,6 @@ export function installStaleChunkRecovery(): void {
   });
 
   window.addEventListener('unhandledrejection', (event) => {
-    const reason = event.reason;
-    const message = reason instanceof Error ? reason.message : String(reason ?? '');
-    if (STALE_CHUNK_RE.test(message)) recoverFromStaleChunk();
+    if (isStaleChunkError(event.reason)) recoverFromStaleChunk();
   });
 }

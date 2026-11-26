@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { css } from '@/lib/css';
 
 /**
@@ -34,15 +35,45 @@ export function PolicyLinks({ color = 'var(--ag-crimson)' }: { color?: string })
 export function ConsentCheckbox({
   checked,
   onChange,
+  /** Bump this (an incrementing counter) when the user tried to submit without
+   *  ticking: the box shakes, rings crimson and scrolls into view. The ring
+   *  stays until they tick it; the shake is a one-shot that re-fires each bump. */
+  attention = 0,
   /** Overrides the default lead-in — e.g. the Seller Agreement wording. */
   children,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
+  attention?: number;
   children?: React.ReactNode;
 }) {
+  const ref = useRef<HTMLLabelElement>(null);
+  const [armed, setArmed] = useState(false); // crimson ring, held until ticked
+  const [shake, setShake] = useState(false); // one-shot wobble
+
+  // A fresh attention bump: ring it, scroll it into view, restart the shake.
+  // Already ticked? Nothing to nag about. attention=0 is the initial render.
+  useEffect(() => {
+    if (!attention || checked) return;
+    setArmed(true);
+    setShake(false);
+    const id = requestAnimationFrame(() => setShake(true));
+    ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return () => cancelAnimationFrame(id);
+  }, [attention]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The moment they tick it, clear the nag.
+  useEffect(() => {
+    if (checked) { setArmed(false); setShake(false); }
+  }, [checked]);
+
   return (
-    <label style={css('display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:12.5px;line-height:1.55;color:var(--ag-label);font-weight:600;')}>
+    <label
+      ref={ref}
+      className={shake ? 'agx-shake' : undefined}
+      onAnimationEnd={() => setShake(false)}
+      style={css(`display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:12.5px;line-height:1.55;color:var(--ag-label);font-weight:600;border-radius:12px;padding:8px 10px;margin:-8px -10px;transition:box-shadow .2s,background .2s;${armed ? 'box-shadow:0 0 0 2px var(--ag-crimson);background:var(--ag-surface-2);' : ''}`)}
+    >
       <input
         type="checkbox"
         checked={checked}

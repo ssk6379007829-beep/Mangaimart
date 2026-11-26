@@ -442,6 +442,20 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
   /* Belt and braces — ScrollReveal already opts out before adding any class. */
   .agx-sr, .agx-sr-in { opacity: 1 !important; transform: none !important; animation: none !important; }
 }
+/* Draws the eye to a required consent checkbox the user tried to skip — a short
+   horizontal shake. Paired in markup with a crimson ring that persists until the
+   box is ticked (see components/legal/Consent.tsx). */
+@keyframes agx-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-6px); }
+  30% { transform: translateX(6px); }
+  45% { transform: translateX(-5px); }
+  60% { transform: translateX(5px); }
+  75% { transform: translateX(-3px); }
+  90% { transform: translateX(3px); }
+}
+.agx-shake { animation: agx-shake .5s cubic-bezier(.36,.07,.19,.97) both; }
+@media (prefers-reduced-motion: reduce){ .agx-shake { animation: none; } }
 .agx-reveal { animation: agx-rise .55s cubic-bezier(.2,.7,.2,1) both; }
 .agx-reveal-2 { animation: agx-rise .55s .08s cubic-bezier(.2,.7,.2,1) both; }
 .agx-reveal-3 { animation: agx-rise .55s .16s cubic-bezier(.2,.7,.2,1) both; }

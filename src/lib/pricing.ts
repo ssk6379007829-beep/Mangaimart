@@ -177,7 +177,7 @@ export function baseShipFee(
  * Why this bag cannot be sent to this address, or null if it can.
  *
  * Only answerable once there is an address: with no pincode the bag is priced,
- * not refused. Named shop-first because "Uzhamagal does not deliver to Delhi" is
+ * not refused. Named shop-first because "MangaiMart does not deliver to Delhi" is
  * something a buyer can act on — swap the item, or change the address — where
  * "delivery unavailable" is not.
  */

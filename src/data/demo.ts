@@ -192,19 +192,25 @@ export type Thread = {
  * The buyer's tracking timeline.
  *
  * Every step here is now backed by something real. "Packed" comes from the
- * seller's own action (migration 0063); "In Transit" and "Out for Delivery"
- * come from courier scans (0067) and can only be set by the courier, never by
- * the seller — which is the point. Anything we cannot evidence stays dim rather
- * than being invented from a timer.
+ * seller's own action (migration 0063); "Awaiting pickup", "In Transit" and
+ * "Out for Delivery" come from courier scans (0067, pickup widened in 0116) and
+ * can only be set by the courier, never by the seller — which is the point.
+ * Anything we cannot evidence stays dim rather than being invented from a timer.
  *
- * INDEX-SENSITIVE: `STATUS_STAGE` and `trackStage()` in src/lib/orderHistory.ts
- * map onto these positions. Inserting a step means updating both.
+ * INDEX-SENSITIVE: `STATUS_STAGE` and `trackStage()` in src/lib/orderHistory.ts,
+ * and the `stageTimes`/`COURIER_ONLY_STEPS` maps in buyer/TrackOrder.tsx, map
+ * onto these positions. Inserting a step means updating all of them.
  */
 export const TRACK_STAGES = [
   { label: 'Order Placed', icon: 'receipt_long', sub: 'We’ve received your order' },
   { label: 'Confirmed', icon: 'task_alt', sub: 'Boutique confirmed your order' },
   { label: 'Packed', icon: 'inventory_2', sub: 'Your item is packed & ready' },
-  { label: 'Shipped', icon: 'local_shipping', sub: 'Handed to the courier' },
+  { label: 'Shipped', icon: 'local_shipping', sub: 'Booked with the courier' },
+  // "Awaiting pickup" is a courier-scan stage, not a seller action: it lights up
+  // only on a `pickup_pending` scan (the courier is assigned and on its way to
+  // collect, but the parcel is still with the boutique). Dropped for manual
+  // parcels, which have no scans — see COURIER_ONLY_STEPS in TrackOrder.
+  { label: 'Awaiting pickup', icon: 'package_2', sub: 'Courier is on its way to collect' },
   { label: 'In Transit', icon: 'conveyor_belt', sub: 'On its way to your city' },
   { label: 'Out for Delivery', icon: 'moped', sub: 'Arriving today' },
   { label: 'Delivered', icon: 'home', sub: 'Order delivered — enjoy!' },

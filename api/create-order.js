@@ -171,16 +171,18 @@ export default async function handler(req, res) {
     });
   }
 
-  // The coupon (if any) is re-fetched and applied here so the Razorpay order is
-  // opened for the exact discounted amount place-order will re-verify.
-  const coupon = await loadCoupon(supabase, couponCode);
-  // Delivery is each boutique's own charge (0076) and varies with how far the
-  // parcel goes (0077), so the amount depends on both the shops in the bag and
-  // the address it is going to. The pincode arrives from the checkout form; a
-  // pincode we cannot place resolves to null, which prices every shop at its
-  // furthest zone — the same fallback the browser applies.
-  const shops = await loadShopTerms(supabase, Object.keys(priced.groupTotals));
-  const buyerPlace = await loadBuyerPlace(supabase, pincode);
+  // Three independent reads, issued together rather than as serial round trips:
+  // the coupon (re-fetched and applied here so the Razorpay order is opened for
+  // the exact discounted amount place-order will re-verify); each boutique's own
+  // delivery terms (0076); and the buyer's zone (0077). Delivery varies with how
+  // far the parcel goes, so the amount depends on both the shops in the bag and
+  // the address — a pincode we cannot place resolves to null, pricing every shop
+  // at its furthest zone, the same fallback the browser applies.
+  const [coupon, shops, buyerPlace] = await Promise.all([
+    loadCoupon(supabase, couponCode),
+    loadShopTerms(supabase, Object.keys(priced.groupTotals)),
+    loadBuyerPlace(supabase, pincode),
+  ]);
   // Live Shiprocket quotes (migration 0120), if the browser got any. Each is a
   // signed figure bound to the boutique, this pincode and the exact items; anything
   // that fails verification is dropped and that boutique prices at its flat zone

@@ -165,24 +165,35 @@ export async function stateForPincode(token: string, pincode: string): Promise<s
 }
 
 /**
- * Map a courier's own wording onto the five stages `shipment_events.stage`
- * accepts.
+ * Map a courier's own wording onto the seven stages `shipment_events.stage`
+ * accepts (migration 0116 added `pickup_pending` for the booked-but-not-yet-
+ * collected phase; `apply_shipment_scan` leaves the order on "Shipped" for it).
  *
- * Deliberately conservative: anything unrecognised becomes `in_transit`, which
- * records the scan without moving the order. A status we have never seen must
- * never be the thing that releases money, and Shiprocket's status vocabulary
- * varies by courier — new strings appear without notice.
+ * Deliberately conservative: anything unrecognised *after pickup* becomes
+ * `in_transit`, which records the scan without moving the order. A status we
+ * have never seen must never be the thing that releases money, and Shiprocket's
+ * status vocabulary varies by courier — new strings appear without notice.
  */
-export function mapStage(raw: string): 'picked_up' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'rto' | 'failed' {
+export function mapStage(raw: string): 'pickup_pending' | 'picked_up' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'rto' | 'failed' {
   const s = (raw ?? '').toUpperCase();
 
   // RTO first: "RTO DELIVERED" contains "DELIVERED" and means the exact
   // opposite — the parcel came back to the seller. Order matters here.
   if (s.includes('RTO') || s.includes('RETURN TO ORIGIN')) return 'rto';
-  if (s.includes('CANCELL') || s.includes('LOST') || s.includes('DAMAGE')) return 'failed';
+  // "CANCEL" (not "CANCELL") — Shiprocket sends the US spelling "CANCELED", which
+  // the double-L test missed, so a cancelled booking read as "in transit".
+  if (s.includes('CANCEL') || s.includes('LOST') || s.includes('DAMAGE')) return 'failed';
   if (s.includes('OUT FOR DELIVERY') || s.includes('OFD')) return 'out_for_delivery';
   if (s.includes('DELIVERED')) return 'delivered';
-  if (s.includes('PICKED') || s.includes('PICKUP COMPLETE')) return 'picked_up';
+  // Collected — a real movement. Tested BEFORE the pre-pickup branch below,
+  // because "PICKUP COMPLETE"/"PICKUP DONE" also contain "PICKUP".
+  if (s.includes('PICKED') || s.includes('PICKUP COMPLETE') || s.includes('PICKUP DONE')) return 'picked_up';
+  // Booked but NOT yet collected: "OUT FOR PICKUP", "PICKUP SCHEDULED",
+  // "PICKUP GENERATED/QUEUED/RESCHEDULED/EXCEPTION", "MANIFEST GENERATED". The
+  // parcel is still with the seller, so this must NOT read as "in transit" — the
+  // old default here is exactly what showed the buyer a moving parcel before the
+  // courier had touched it.
+  if (s.includes('PICKUP') || s.includes('MANIFEST') || s.includes('AWAITING')) return 'pickup_pending';
   return 'in_transit';
 }
 
