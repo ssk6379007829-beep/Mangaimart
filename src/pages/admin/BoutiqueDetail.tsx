@@ -154,16 +154,7 @@ export function BoutiqueDetail() {
           </div>
 
           <div className="agx-adm-g2">
-            <Card>
-              <div style={css('font-weight:800;font-size:15px;margin-bottom:6px;')}>Shop details</div>
-              <Field label="Status" value={BOUTIQUE_STATUS_LABEL[boutique.status]} />
-              <Field label="Owner" value={owner} />
-              <Field label="Category" value={boutique.category || '—'} />
-              <Field label="City" value={boutique.city || '—'} />
-              <Field label="District / state" value={`${boutique.district || '—'} · ${boutique.state || '—'}`} />
-              <Field label="Pincode" value={boutique.pincode || '—'} />
-              <Field label="Instagram" value={boutique.instagram ? `@${boutique.instagram.replace(/^@/, '')}` : '—'} />
-            </Card>
+            <DetailsCard boutique={boutique} editable={canMoney} onSaved={reload} />
 
             <Card>
               <div style={css('font-weight:800;font-size:15px;margin-bottom:6px;')}>Timeline & fulfilment</div>
@@ -327,6 +318,94 @@ function PayoutsTab({ boutiqueId }: { boutiqueId: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+/** The shop's descriptive details — read-only, with an admin edit mode for the
+ *  correction fields. The name/slug are deliberately NOT editable here: they
+ *  drive the storefront URL and SEO, and the seller owns them. */
+function DetailsCard({ boutique, editable, onSaved }: { boutique: AdminBoutiqueRow; editable: boolean; onSaved: () => void }) {
+  const { showToast } = useShop();
+  const [edit, setEdit] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [ownerName, setOwnerName] = useState(boutique.owner_name ?? '');
+  const [category, setCategory] = useState(boutique.category ?? '');
+  const [description, setDescription] = useState(boutique.description ?? '');
+  const [area, setArea] = useState(boutique.area ?? '');
+  const [city, setCity] = useState(boutique.city ?? '');
+  const [district, setDistrict] = useState(boutique.district ?? '');
+  const [stateName, setStateName] = useState(boutique.state ?? '');
+  const [pincode, setPincode] = useState(boutique.pincode ?? '');
+  const [instagram, setInstagram] = useState(boutique.instagram ?? '');
+
+  const owner = boutique.owner_name || boutique.owner?.full_name || '—';
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await updateBoutique(boutique.id, {
+        owner_name: ownerName.trim(),
+        category: category.trim(),
+        description: description.trim(),
+        area: area.trim(),
+        city: city.trim(),
+        district: district.trim(),
+        state: stateName.trim(),
+        pincode: pincode.trim(),
+        instagram: instagram.trim() || null,
+      });
+      showToast('Shop details updated');
+      setEdit(false);
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not save', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const label = css('font-size:12px;font-weight:700;color:var(--ag-label);display:block;margin-top:12px;');
+  const field = css('width:100%;margin-top:5px;border:1.5px solid var(--ag-border);background:var(--ag-surface);border-radius:11px;padding:0 12px;height:40px;font-size:13.5px;font-weight:600;color:var(--ag-ink);font-family:inherit;box-sizing:border-box;');
+
+  if (edit) {
+    return (
+      <Card>
+        <div style={css('display:flex;align-items:center;justify-content:space-between;gap:10px;')}>
+          <div style={css('font-weight:800;font-size:15px;')}>Edit shop details</div>
+        </div>
+        <label style={label}>Owner name<input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} style={field} /></label>
+        <label style={label}>Category<input value={category} onChange={(e) => setCategory(e.target.value)} style={field} /></label>
+        <label style={label}>Bio<textarea value={description} onChange={(e) => setDescription(e.target.value)} style={css(field + 'height:72px;padding:9px 12px;resize:vertical;')} /></label>
+        <div className="agx-adm-g2">
+          <label style={label}>Area<input value={area} onChange={(e) => setArea(e.target.value)} style={field} /></label>
+          <label style={label}>City<input value={city} onChange={(e) => setCity(e.target.value)} style={field} /></label>
+          <label style={label}>District<input value={district} onChange={(e) => setDistrict(e.target.value)} style={field} /></label>
+          <label style={label}>State<input value={stateName} onChange={(e) => setStateName(e.target.value)} style={field} /></label>
+          <label style={label}>Pincode<input value={pincode} onChange={(e) => setPincode(e.target.value)} style={field} /></label>
+          <label style={label}>Instagram handle<input value={instagram} onChange={(e) => setInstagram(e.target.value)} style={field} /></label>
+        </div>
+        <div style={css('display:flex;gap:10px;margin-top:16px;')}>
+          <GhostButton onClick={() => setEdit(false)}>Cancel</GhostButton>
+          <GhostButton tone="primary" icon="save" onClick={() => { if (!busy) void save(); }}>{busy ? 'Saving…' : 'Save'}</GhostButton>
+        </div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <div style={css('display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;')}>
+        <div style={css('font-weight:800;font-size:15px;')}>Shop details</div>
+        {editable && <IconButton icon="edit" title="Edit shop details" onClick={() => setEdit(true)} />}
+      </div>
+      <Field label="Status" value={BOUTIQUE_STATUS_LABEL[boutique.status]} />
+      <Field label="Owner" value={owner} />
+      <Field label="Category" value={boutique.category || '—'} />
+      <Field label="City" value={boutique.city || '—'} />
+      <Field label="District / state" value={`${boutique.district || '—'} · ${boutique.state || '—'}`} />
+      <Field label="Pincode" value={boutique.pincode || '—'} />
+      <Field label="Instagram" value={boutique.instagram ? `@${boutique.instagram.replace(/^@/, '')}` : '—'} />
+    </Card>
   );
 }
 
