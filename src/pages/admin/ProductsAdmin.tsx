@@ -1,5 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { css } from '@/lib/css';
+import { adminPath } from '@/lib/adminPath';
 import { errMessage } from '@/lib/errMessage';
 import { fmtInr } from '@/lib/tokens';
 import { useShop } from '@/state/ShopContext';
@@ -26,6 +28,7 @@ const STATUS_OPTS: { value: ProductStatus; label: string }[] = [
 export function ProductsAdmin() {
   const { showToast } = useShop();
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [page, setPage] = useState(0);
   const [rawSearch, setRawSearch] = useSeededSearch();
   const search = useDebounced(rawSearch, 300);
@@ -227,6 +230,7 @@ export function ProductsAdmin() {
         selectedIds={selected}
         onToggle={toggle}
         onToggleAll={toggleAll}
+        onRowClick={(p) => navigate(adminPath(`products/${p.id}`), { state: { product: p } })}
         empty={<EmptyState icon="local_mall" title="No products found" sub="Try a different search or filter." />}
       />
       {total > 0 && <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />}

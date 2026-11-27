@@ -110,6 +110,50 @@ export interface UpdateProductInput {
   status: ProductStatus;
 }
 
+/**
+ * One product's admin row — for the full product page reached by URL. Unlike
+ * `fetchProduct` (buyer/seller, which hides soft-deleted rows) this keeps a
+ * deleted product visible so it can be restored. Returns null if absent.
+ */
+export async function fetchProductAdminById(id: string): Promise<AdminProductRow | null> {
+  const { data, error } = await supabase.from('products').select(SELECT).eq('id', id).maybeSingle();
+  if (error) throw error;
+  return (data as unknown as AdminProductRow) ?? null;
+}
+
+export interface ProductOrderRow {
+  id: string;
+  order_number: string;
+  created_at: string;
+  status: string;
+  qty: number;
+  price: number;
+}
+
+/**
+ * Orders that included this product, newest first. Admin-only in practice —
+ * staff hold no read policy on `orders`/`order_items` (migration 0086), so this
+ * returns an empty list for them rather than throwing.
+ */
+export async function fetchProductOrders(productId: string): Promise<ProductOrderRow[]> {
+  const { data, error } = await supabase
+    .from('order_items')
+    .select('qty, price, order:orders!inner(id, order_number, created_at, status)')
+    .eq('product_id', productId)
+    .limit(100);
+  if (error) {
+    console.warn('[products] order history unavailable:', error.message);
+    return [];
+  }
+  const rows = (data ?? []) as unknown as {
+    qty: number; price: number; order: { id: string; order_number: string; created_at: string; status: string } | null;
+  }[];
+  return rows
+    .filter((r) => r.order)
+    .map((r) => ({ id: r.order!.id, order_number: r.order!.order_number, created_at: r.order!.created_at, status: r.order!.status, qty: r.qty, price: r.price }))
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+}
+
 /** Admin edit of the core merchandising fields on an existing product. */
 export async function updateProduct(id: string, input: UpdateProductInput) {
   const { error } = await supabase

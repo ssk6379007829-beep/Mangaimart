@@ -163,6 +163,7 @@ const AdminBoutiqueDetail = lazyNamed(() => import('@/pages/admin/BoutiqueDetail
 const Users = lazyNamed(() => import('@/pages/admin/Users'), 'Users');
 const AdminUserDetail = lazyNamed(() => import('@/pages/admin/UserDetail'), 'UserDetail');
 const ProductsAdmin = lazyNamed(() => import('@/pages/admin/ProductsAdmin'), 'ProductsAdmin');
+const AdminProductDetail = lazyNamed(() => import('@/pages/admin/ProductDetailPage'), 'ProductDetailPage');
 const OrdersAdmin = lazyNamed(() => import('@/pages/admin/OrdersAdmin'), 'OrdersAdmin');
 const AdminOrderDetail = lazyNamed(() => import('@/pages/admin/OrderDetailPage'), 'OrderDetailPage');
 const Payments = lazyNamed(() => import('@/pages/admin/Payments'), 'Payments');
@@ -455,6 +456,7 @@ export default function App() {
             history that outlives those open tabs lives. */}
         <Route path="visitors" element={<Visitors />} />
         <Route path="products" element={<ProductsAdmin />} />
+        <Route path="products/:id" element={<AdminProductDetail />} />
         <Route path="orders" element={<OrdersAdmin />} />
         <Route path="orders/:id" element={<AdminOrderDetail />} />
         {/* Courier tracking's admin side (0063): disputes that freeze a payout,
