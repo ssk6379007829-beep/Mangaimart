@@ -17,8 +17,8 @@ import { useTaxonomy } from '@/state/TaxonomyContext';
 import { SORTS, TONES, fmt } from '@/data/demo';
 import { useLiveAds } from '@/hooks/useLiveAds';
 import { SponsoredStrip } from '@/components/buyer/SponsoredStrip';
-import { matchesFilters } from '@/lib/shopFilter';
-import { hasTerm } from '@/lib/vocabulary';
+import { matchesFilters, availableFacets } from '@/lib/shopFilter';
+import { hasTerm, termKey } from '@/lib/vocabulary';
 
 const reviewsF = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n));
 
@@ -76,6 +76,12 @@ export function Results() {
   if (filters.sort === 'Price: Low to High') results = [...results].sort((a, b) => a.price - b.price);
   else if (filters.sort === 'Price: High to Low') results = [...results].sort((a, b) => b.price - a.price);
   else if (filters.sort === 'Popularity') results = [...results].sort((a, b) => b.reviews - a.reviews);
+
+  // Only offer facet options a buyer can still reach — a category with nothing
+  // under the current colour/size/price selection drops out instead of promising
+  // an empty grid. Dynamic and cross-group (see @/lib/shopFilter); an
+  // already-ticked value is kept below so it can still be un-ticked.
+  const facets = availableFacets(PRODUCTS, filters, query);
 
   /**
    * What this page is actually showing, derived from the live state rather than
@@ -254,7 +260,7 @@ export function Results() {
               <div style={css('padding:18px 0;border-bottom:1px solid var(--ag-border);')}>
                 <div className="agx-eyebrow" style={css('font-size:10px;color:var(--ag-muted);')}>Category</div>
                 <div style={css('display:flex;flex-direction:column;gap:6px;margin-top:14px;')}>
-                  {names('category').map((c) => {
+                  {names('category').filter((c) => facets.cats.has(termKey(c)) || hasTerm(filters.cats, c)).map((c) => {
                     const on = hasTerm(filters.cats, c);
                     return (
                       <label key={c} onClick={() => toggleFilter('cats', c)} style={css('display:flex;align-items:center;gap:11px;font-size:13.5px;font-weight:600;color:var(--ag-ink-2);cursor:pointer;')}>
@@ -270,7 +276,7 @@ export function Results() {
               <div style={css('padding:18px 0;border-bottom:1px solid var(--ag-border);')}>
                 <div className="agx-eyebrow" style={css('font-size:10px;color:var(--ag-muted);')}>Size</div>
                 <div style={css('display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;')}>
-                  {names('size').map((s) => {
+                  {names('size').filter((s) => facets.sizes.has(termKey(s)) || hasTerm(filters.sizes, s)).map((s) => {
                     const on = hasTerm(filters.sizes, s);
                     return (
                       <button key={s} onClick={() => toggleFilter('sizes', s)} style={css(`min-width:44px;height:40px;padding:0 12px;border-radius:11px;border:1.5px solid ${on ? '#D6336C' : 'var(--ag-border)'};background:${on ? 'var(--ag-surface-2)' : 'var(--ag-surface)'};color:${on ? 'var(--ag-crimson)' : 'var(--ag-ink-2)'};font-size:13px;font-weight:${on ? 800 : 700};cursor:pointer;`)}>{s}</button>
@@ -282,7 +288,7 @@ export function Results() {
               <div style={css('padding:18px 0;border-bottom:1px solid var(--ag-border);')}>
                 <div className="agx-eyebrow" style={css('font-size:10px;color:var(--ag-muted);')}>Colour</div>
                 <div style={css('display:flex;flex-wrap:wrap;gap:14px;margin-top:15px;')}>
-                  {rows('color').map((c) => (
+                  {rows('color').filter((c) => facets.colors.has(termKey(c.name)) || hasTerm(filters.colors, c.name)).map((c) => (
                     <button key={c.name} onClick={() => toggleFilter('colors', c.name)} style={css('display:flex;flex-direction:column;align-items:center;gap:5px;border:none;background:none;cursor:pointer;')}>
                       <span style={css(`width:34px;height:34px;border-radius:50%;background:${hexOf(c.name)};box-shadow:0 0 0 ${hasTerm(filters.colors, c.name) ? '3px #D6336C' : '1px var(--ag-border)'};`)} />
                       <span style={css('font-size:11px;font-weight:700;color:var(--ag-label);')}>{c.name}</span>
@@ -294,7 +300,7 @@ export function Results() {
               <div style={css('padding:18px 0 4px;')}>
                 <div className="agx-eyebrow" style={css('font-size:10px;color:var(--ag-muted);')}>Occasion</div>
                 <div style={css('display:flex;flex-direction:column;gap:6px;margin-top:14px;')}>
-                  {names('occasion').map((o) => {
+                  {names('occasion').filter((o) => facets.occasions.has(termKey(o)) || hasTerm(filters.occasions, o)).map((o) => {
                     const on = hasTerm(filters.occasions, o);
                     return (
                       <label key={o} onClick={() => toggleFilter('occasions', o)} style={css('display:flex;align-items:center;gap:11px;font-size:13.5px;font-weight:600;color:var(--ag-ink-2);cursor:pointer;')}>

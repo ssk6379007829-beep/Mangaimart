@@ -25,7 +25,15 @@ export type ReturnReason =
   | 'size_issue'
   | 'changed_mind';
 
-export type ReturnStatus = 'requested' | 'approved' | 'rejected' | 'refunded';
+// picked_up / received were added in 0123 when the reverse Shiprocket pickup
+// gave the return a parcel to track: approved → picked_up → received → refunded.
+export type ReturnStatus =
+  | 'requested'
+  | 'approved'
+  | 'picked_up'
+  | 'received'
+  | 'rejected'
+  | 'refunded';
 
 export interface ReturnRequest {
   id: string;
@@ -39,6 +47,23 @@ export interface ReturnRequest {
   seller_note: string | null;
   created_at: string;
   resolved_at: string | null;
+}
+
+/** The reverse parcel booked for an approved return (migration 0123). */
+export interface ReturnShipment {
+  id: string;
+  return_request_id: string;
+  order_id: string;
+  boutique_id: string;
+  provider: 'shiprocket';
+  awb: string | null;
+  courier_name: string | null;
+  label_url: string | null;
+  freight_charge: number | null;
+  status: 'booked' | 'pickup_pending' | 'picked_up' | 'in_transit' | 'received' | 'cancelled' | 'failed';
+  last_status: string | null;
+  last_status_at: string | null;
+  created_at: string;
 }
 
 /** Which reasons are a fault claim, and so exempt from the goodwill window. */
@@ -61,6 +86,8 @@ export const RETURN_REASON_LABEL: Record<ReturnReason, string> = {
 export const RETURN_STATUS_LABEL: Record<ReturnStatus, string> = {
   requested: 'Awaiting the boutique',
   approved: 'Return approved',
+  picked_up: 'Picked up — on its way back',
+  received: 'Received by the boutique',
   rejected: 'Not accepted',
   refunded: 'Refunded',
 };
@@ -134,16 +161,86 @@ export async function requestReturn(input: {
   return data as string;
 }
 
-/** Seller/admin answer. `note` is required to reject. */
+/**
+ * Seller/admin answer.
+ *
+ * REJECT goes straight through the RPC — nothing moves but the decision.
+ *
+ * APPROVE is routed through the `return-pickup` Edge Function instead of the
+ * RPC, because approving now has to BOOK the Shiprocket reverse pickup too
+ * (migration 0123). That function approves the request (through the same audited
+ * RPC) and books the parcel in one call, so the seller clicks once. `note` is
+ * required to reject.
+ */
 export async function resolveReturnRequest(
   requestId: string,
   status: 'approved' | 'rejected',
   note?: string,
 ): Promise<void> {
+  if (status === 'approved') {
+    await bookReturnPickup(requestId);
+    return;
+  }
   const { error } = await supabase.rpc('resolve_return_request', {
     p_request_id: requestId,
     p_status: status,
     p_note: note ?? null,
   });
   if (error) throw new Error(error.message || 'Could not save that decision.');
+}
+
+const RETURN_SHIPMENT_COLUMNS =
+  'id, return_request_id, order_id, boutique_id, provider, awb, courier_name, label_url, freight_charge, status, last_status, last_status_at, created_at';
+
+/**
+ * Book the reverse pickup for an approved return — collected from the buyer,
+ * delivered back to the boutique. Approves the request as part of the same call.
+ *
+ * Returns the server's own message on a refusal: like the forward booking, those
+ * strings are written to be shown verbatim ("Shiprocket could not arrange a
+ * courier…"), so surfacing them beats a generic failure. A booking failure
+ * leaves the request approved, so the seller can retry without re-approving.
+ */
+export async function bookReturnPickup(
+  returnRequestId: string,
+): Promise<{ awb: string; courierName: string; labelUrl: string | null; freightCharge: number | null }> {
+  const { data, error } = await supabase.functions.invoke('return-pickup', {
+    body: { returnRequestId },
+  });
+  if (error) {
+    // supabase-js hides the real body behind an opaque "non-2xx"; dig it out.
+    let message = error.message;
+    const res = (error as { context?: Response }).context;
+    if (res && typeof res.json === 'function') {
+      try {
+        const body = await res.json();
+        if (body?.error) message = body.error as string;
+      } catch { /* not JSON — keep the generic message */ }
+    }
+    throw new Error(message || 'Could not book the return pickup.');
+  }
+  if (!data?.ok) throw new Error(data?.error ?? 'Could not book the return pickup.');
+  return {
+    awb: data.awb as string,
+    courierName: data.courierName as string,
+    labelUrl: (data.labelUrl as string | null) ?? null,
+    freightCharge: (data.freightCharge as number | null) ?? null,
+  };
+}
+
+/** The reverse parcel on a return, if one has been booked. Never throws on a
+ *  missing table — a deploy that is one migration behind simply shows none. */
+export async function fetchReturnShipment(returnRequestId: string): Promise<ReturnShipment | null> {
+  const { data, error } = await supabase
+    .from('return_shipments')
+    .select(RETURN_SHIPMENT_COLUMNS)
+    .eq('return_request_id', returnRequestId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    if (isMissingTable(error) || /return_shipments/.test(error.message ?? '')) return null;
+    throw error;
+  }
+  return (data as unknown as ReturnShipment) ?? null;
 }

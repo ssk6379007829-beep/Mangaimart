@@ -5,7 +5,7 @@ import { useShop } from '@/state/ShopContext';
 import { useCatalog } from '@/state/CatalogContext';
 import { useTaxonomy } from '@/state/TaxonomyContext';
 import { sortSizes } from '@/lib/sizes';
-import { matchesFilters } from '@/lib/shopFilter';
+import { matchesFilters, availableFacets } from '@/lib/shopFilter';
 import { hasTerm, termKey } from '@/lib/vocabulary';
 import { fmt } from '@/data/demo';
 
@@ -48,13 +48,16 @@ export function FilterSheet() {
   const inCatalogue = <T,>(options: T[], has: (o: T) => boolean, selected: (o: T) => boolean) =>
     options.filter((o) => has(o) || selected(o));
 
-  // Keyed by `termKey`, not by the raw string: the options are the admin's
-  // spellings and these are the sellers', so an exact-keyed set hid the Kurta
-  // Set chip from a sheet whose catalogue was full of "kurta set".
-  const catsPresent = new Set(PRODUCTS.map((p) => termKey(p.cat)));
-  const occasionsPresent = new Set(PRODUCTS.map((p) => termKey(p.occasion)));
-  const colorsPresent = new Set(PRODUCTS.map((p) => termKey(p.color)));
-  const sizesPresent = new Set(PRODUCTS.flatMap((p) => (p.sizes ?? []).map(termKey)));
+  // Reachable options per group, keyed by `termKey` (the options are the admin's
+  // spellings and these are the sellers', so an exact-keyed set hid the Kurta Set
+  // chip from a sheet full of "kurta set"). Dynamic and cross-group, the same
+  // helper the desktop aside uses — so picking a colour narrows the category
+  // chips to what still matches, instead of leaving taps that open an empty grid.
+  const facets = availableFacets(PRODUCTS, filters, query);
+  const catsPresent = facets.cats;
+  const occasionsPresent = facets.occasions;
+  const colorsPresent = facets.colors;
+  const sizesPresent = facets.sizes;
 
   // Canonical ladder (XS · S · M · L · XL · XXL … · Free Size). The vocabulary
   // returns whatever order the rows were approved in, which put XS and XXL after

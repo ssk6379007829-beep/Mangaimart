@@ -230,6 +230,9 @@ export function Refunds() {
             </div>
 
             <Field label="Order status" value={<StatusPill status={detail.status} />} />
+            {detail.return_received && (
+              <Field label="Return" value={<span style={css('color:var(--ag-gold-text);font-weight:800;')}>Received back — refund owed</span>} />
+            )}
             <Field label="Payment" value={<StatusPill status={detail.payment_id ? 'paid' : 'cod'} label={detail.payment_id ? 'Online' : 'COD'} />} />
             <Field label="Money received" value={moneyCollected(detail) ? 'Yes' : 'Never paid'} />
 

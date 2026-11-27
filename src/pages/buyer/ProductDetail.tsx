@@ -21,7 +21,6 @@ import { matchesProductSlug, productIdFromSlug, routes, clampDescription } from 
 import { breadcrumbSchema, graph, organizationSchema, productSchema } from '@/lib/schema';
 import { TONES, fmt } from '@/data/demo';
 import { POLICY_TERMS } from '@/data/company';
-import { DeliveryCheck } from '@/components/buyer/DeliveryCheck';
 import { dispatchLabel, returnsDetail, returnsLabel, shopFulfilment } from '@/lib/fulfilment';
 import { badgesFor, DEFAULT_COLOR_DISCLAIMER } from '@/lib/productBadges';
 
@@ -310,30 +309,8 @@ export function ProductDetail() {
    * there is nothing to link to.
    */
   const boutiqueLink = boutique ? routes.boutique(boutique) : boutiqueId ? `/boutique/${boutiqueId}` : '';
-  /**
-   * This shop's delivery rates, in the shape `@/lib/pricing` and the "Deliver
-   * to" box both work in. `undefined` on a zone means the row predates
-   * migration 0077 and the shop charges one rate everywhere, as it used to;
-   * `null` means it does not deliver that far.
-   */
-  const shopRates = (() => {
-    const local = boutique?.deliveryCharge ?? 0;
-    const zone = (v: number | null | undefined) => (v === undefined ? local : v);
-    return {
-      local,
-      district: zone(boutique?.deliveryChargeDistrict),
-      state: zone(boutique?.deliveryChargeState),
-      national: zone(boutique?.deliveryChargeNational),
-    };
-  })();
   /** This shop's dispatch time and return window, normalised (migration 0078). */
   const fulfilment = shopFulfilment(boutique);
-  const shopPlace = {
-    pincode: boutique?.pincode,
-    city: boutique?.city,
-    district: boutique?.district,
-    state: boutique?.state,
-  };
 
   // Broad "you may also like" — same category surfaced first, up to 30 items
   const youMayLike = [...PRODUCTS.filter((p) => p.id !== ap.id)]
@@ -908,18 +885,17 @@ export function ProductDetail() {
             {renderBagControl(56)}
           </div>
 
-          {/* Delivery is priced by distance (migration 0077), so the exact
-              charge is a question only the buyer's pincode can answer. Directly
-              under the buy actions, where "what will this actually cost me"
-              gets asked — not buried in the shipping accordion further down. */}
-          <DeliveryCheck
-            rates={shopRates}
-            place={shopPlace}
-            freeDeliveryOver={boutique?.freeDeliveryOver ?? 0}
-            boutiqueName={boutique?.name}
-            productId={ap.id}
-            boutiqueId={boutiqueId}
-          />
+          {/* Delivery is priced by distance (0077) and by the live courier rate
+              (0120), so the exact charge is a question only the buyer's full
+              delivery address can answer. Rather than ask for a pincode here, we
+              say plainly that it is added at checkout — the address the parcel
+              actually goes to is captured there. */}
+          <div style={css('margin-top:14px;padding:12px 14px;border:1px solid var(--ag-surface-3);border-radius:14px;background:var(--ag-surface);display:flex;align-items:center;gap:10px;')}>
+            <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:20px;color:var(--ag-crimson);flex:none;")}>local_shipping</span>
+            <span style={css('font-size:12.5px;font-weight:700;color:var(--ag-ink-2);line-height:1.5;')}>
+              Price will differ at final checkout due to delivery charge.
+            </span>
+          </div>
 
           {/* FEATURE BADGES — the seller's own picks (migration 0054), never a
               claim the app invented. A product listed before the seller form
@@ -940,6 +916,14 @@ export function ProductDetail() {
 
           {/* ACCORDION PANELS */}
           <div style={css('display:flex;flex-direction:column;gap:10px;margin-top:24px;')}>
+            {/* No invented copy here any more: the description is the seller's
+                or the section doesn't appear. It used to print "Handcrafted with
+                intricate zari work" over any piece whose seller left it blank —
+                a claim the platform had no basis for. New listings must fill it. */}
+            {ap.description && renderPanel('description', 'description', 'Description', '', (
+              <div style={css('color:var(--ag-ink-2);font-size:14.5px;line-height:1.65;white-space:pre-line;')}>{ap.description}</div>
+            ))}
+
             {offers.length > 0 && renderPanel('offers', 'sell', 'Offers', `${offers.length}`, (
               <div style={css('display:flex;flex-direction:column;gap:9px;')}>
                 {offers.map((c) => (
@@ -971,12 +955,8 @@ export function ProductDetail() {
               </div>
             ))}
 
-            {/* No invented copy here any more: the description is the seller's
-                or the section doesn't appear. It used to print "Handcrafted with
-                intricate zari work" over any piece whose seller left it blank —
-                a claim the platform had no basis for. New listings must fill it. */}
-            {ap.description && renderPanel('description', 'description', 'Description', '', (
-              <div style={css('color:var(--ag-ink-2);font-size:14.5px;line-height:1.65;white-space:pre-line;')}>{ap.description}</div>
+            {ap.washCare && renderPanel('wash', 'local_laundry_service', 'Wash Care', '', (
+              <div style={css('color:var(--ag-ink-2);font-size:14.5px;line-height:1.65;white-space:pre-line;')}>{ap.washCare}</div>
             ))}
 
             {ap.feedingFriendly && renderPanel('feeding', 'child_care', 'Feeding Friendly', '', (
@@ -987,15 +967,11 @@ export function ProductDetail() {
               </div>
             ))}
 
-            {ap.washCare && renderPanel('wash', 'local_laundry_service', 'Wash Care', '', (
-              <div style={css('color:var(--ag-ink-2);font-size:14.5px;line-height:1.65;white-space:pre-line;')}>{ap.washCare}</div>
-            ))}
-
             {/* Every card here is the SELLER's own answer about this parcel.
                 The two summary tiles this panel used to lead with — a delivery
                 figure and a "Verified boutique" badge — were not: the charge is
-                priced by distance and already answered by <DeliveryCheck> above
-                the fold, and verification is a fact about the shop, not about
+                priced by distance and confirmed at checkout (noted under the buy
+                actions above), and verification is a fact about the shop, not about
                 shipping, and is already shown on the boutique row. What is left
                 is what the seller filled in. */}
             {renderPanel('delivery', 'local_shipping', 'Shipping Information', '', (

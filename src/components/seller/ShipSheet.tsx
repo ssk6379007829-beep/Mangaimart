@@ -128,6 +128,17 @@ export function ShipSheet({
   }, [courierOptions]);
   const [pickupDate, setPickupDate] = useState(todayISO());
   const [slotIdx, setSlotIdx] = useState(0);
+  // Packing-confirmation step (book mode only): after the seller taps
+  // "Schedule & ship" we hold here, show how to pack the parcel, and require
+  // each point to be ticked before the courier is actually booked — so a parcel
+  // is sealed in a waterproof bag and ready before the courier comes, not booked
+  // and then fumbled. The label isn't here: it only exists once booked, so the
+  // "print & attach the label" reminder is shown AFTER booking (in OrderDetail),
+  // where it can actually open the label to print.
+  const [packConfirm, setPackConfirm] = useState(false);
+  const [ackPoly, setAckPoly] = useState(false);
+  const [ackReady, setAckReady] = useState(false);
+  const allAck = ackPoly && ackReady;
   // Only DTDC schedules a two-hour slot; Shiprocket (and the auto fallback) take
   // a date only, so the slot selector shows just for a DTDC pickup.
   const showSlot = selected?.provider === 'dtdc';
@@ -166,6 +177,19 @@ export function ShipSheet({
   const field = 'width:100%;height:46px;border-radius:12px;border:1.5px solid var(--ag-border);background:var(--ag-bg);color:var(--ag-ink);padding:0 13px;font-size:14px;font-family:inherit;box-sizing:border-box;';
   const label = 'font-size:12px;font-weight:800;color:var(--ag-muted);letter-spacing:.05em;margin-bottom:6px;';
 
+  // The booking payload, built from the current form. Used once the packing
+  // step is confirmed. A DTDC pick is forced; anything else (a Shiprocket
+  // courier, or nothing resolved) goes to the server's fallback chain with the
+  // auto-picked Shiprocket courier as its preference, so a courier that cannot
+  // take it falls back instead of stranding the order.
+  const buildBookPayload = (): BookPayload => ({
+    carrier: selected?.provider === 'dtdc' ? 'dtdc' : undefined,
+    courierId: selected?.provider === 'shiprocket' ? selected.courierId : undefined,
+    date: pickupDate,
+    slotStart: PICKUP_SLOTS[slotIdx].start, slotEnd: PICKUP_SLOTS[slotIdx].end,
+    pickup: { phone: puPhone.trim(), addressLine: puAddress.trim(), city: puCity.trim(), state: puState.trim(), pincode: puPin.trim() },
+  });
+
   return (
     <div
       style={css('position:fixed;inset:0;z-index:60;background:rgba(20,8,14,.45);display:flex;align-items:flex-end;justify-content:center;')}
@@ -198,7 +222,63 @@ export function ShipSheet({
           </div>
         )}
 
-        {mode === 'book' ? (
+        {mode === 'book' && packConfirm ? (
+          /* Packing-confirmation step — the parcel's weight/courier are already
+             chosen; here the seller confirms it is packed right and will be
+             labelled before pickup. Every point must be ticked to book. */
+          <>
+            <div style={css('margin-top:16px;border:1.5px solid var(--ag-border);border-radius:14px;padding:15px 15px 6px;background:var(--ag-surface-2);')}>
+              <div style={css('display:flex;align-items:center;gap:10px;')}>
+                <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';color:var(--ag-crimson);")}>inventory_2</span>
+                <div style={css('font-weight:800;font-size:15px;')}>Pack it for safe transit</div>
+              </div>
+              <div style={css('font-size:12.5px;color:var(--ag-muted);line-height:1.55;margin-top:7px;')}>
+                A quick checklist before the courier comes. Tick each one to book — it keeps the garment safe in transit. Your label comes next, ready to print.
+              </div>
+              <div style={css('margin-top:12px;')}>
+                {([
+                  [ackPoly, setAckPoly, 'Packed in a waterproof poly bag', 'Use a plastic courier bag, not paper — it protects the garment from rain and rough handling. Seal all edges with tape.'],
+                  [ackReady, setAckReady, 'Parcel will be sealed and ready before pickup', 'Keep it packed and at your pickup address before the courier arrives on your chosen date.'],
+                ] as const).map(([on, set, title, help], i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onClick={() => set((v) => !v)}
+                    style={css(`display:flex;gap:11px;align-items:flex-start;width:100%;text-align:left;background:none;border:none;padding:9px 0;cursor:pointer;font-family:inherit;border-top:${i === 0 ? 'none' : '1px solid var(--ag-border)'};`)}
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={css(`flex:none;width:24px;height:24px;margin-top:1px;border-radius:7px;border:1.5px solid ${on ? '#D6336C' : 'var(--ag-border)'};background:${on ? 'linear-gradient(135deg,#D6336C,#B02454)' : 'var(--ag-surface)'};display:flex;align-items:center;justify-content:center;font-family:'Material Symbols Outlined';font-size:17px;color:#fff;`)}
+                    >
+                      {on ? 'check' : ''}
+                    </span>
+                    <span style={css('flex:1;min-width:0;')}>
+                      <span style={css('display:block;font-weight:800;font-size:13.5px;color:var(--ag-ink);')}>{title}</span>
+                      <span style={css('display:block;font-size:12px;color:var(--ag-muted);line-height:1.5;margin-top:2px;')}>{help}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={css('display:flex;gap:10px;margin-top:18px;')}>
+              <button
+                onClick={() => setPackConfirm(false)}
+                disabled={busy}
+                style={css('flex:1;height:50px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-label);border-radius:13px;font-weight:800;cursor:pointer;font-family:inherit;')}
+              >
+                Back
+              </button>
+              <button
+                disabled={!allAck || busy}
+                onClick={() => onBook?.(buildBookPayload())}
+                style={css(`flex:1.4;height:50px;border:none;border-radius:13px;background:${(!allAck || busy) ? 'var(--ag-surface-2)' : 'linear-gradient(135deg,#D6336C,#B02454)'};color:${(!allAck || busy) ? 'var(--ag-muted)' : '#fff'};font-weight:800;cursor:${(!allAck || busy) ? 'default' : 'pointer'};font-family:inherit;`)}
+              >
+                {busy ? 'Booking…' : allAck ? 'Confirm & book courier' : 'Tick all to book'}
+              </button>
+            </div>
+          </>
+        ) : mode === 'book' ? (
           <>
             {notice && (
               <div style={css('margin-top:14px;display:flex;gap:9px;align-items:flex-start;background:var(--ag-warn-bg);border:1px solid var(--ag-warn-text);border-radius:13px;padding:11px 13px;')}>
@@ -336,21 +416,13 @@ export function ShipSheet({
               </button>
               {(() => {
                 const blocked = busy || (!!pickup && !pickupReady);
-                // A DTDC pick is forced; anything else (a Shiprocket courier, or
-                // nothing resolved) goes to the server's fallback chain with the
-                // auto-picked Shiprocket courier as its preference, so a courier
-                // that cannot take it falls back instead of stranding the order.
-                const isDtdc = selected?.provider === 'dtdc';
+                // Doesn't book yet — advances to the packing-confirmation step,
+                // where the seller ticks the parcel is packed and labelled
+                // before the courier is actually booked.
                 return (
                   <button
                     disabled={blocked}
-                    onClick={() => onBook?.({
-                      carrier: isDtdc ? 'dtdc' : undefined,
-                      courierId: selected?.provider === 'shiprocket' ? selected.courierId : undefined,
-                      date: pickupDate,
-                      slotStart: PICKUP_SLOTS[slotIdx].start, slotEnd: PICKUP_SLOTS[slotIdx].end,
-                      pickup: { phone: puPhone.trim(), addressLine: puAddress.trim(), city: puCity.trim(), state: puState.trim(), pincode: puPin.trim() },
-                    })}
+                    onClick={() => setPackConfirm(true)}
                     style={css(`flex:1.4;height:50px;border:none;border-radius:13px;background:${blocked ? 'var(--ag-surface-2)' : 'linear-gradient(135deg,#D6336C,#B02454)'};color:${blocked ? 'var(--ag-muted)' : '#fff'};font-weight:800;cursor:${blocked ? 'default' : 'pointer'};font-family:inherit;`)}
                   >
                     {busy ? 'Booking…' : (!!pickup && !pickupReady) ? 'Add pickup phone & pincode' : 'Schedule & ship'}

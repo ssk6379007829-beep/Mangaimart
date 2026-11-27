@@ -192,6 +192,10 @@ a:hover { color: #B02454; }
 .agx-scroll { scrollbar-width: none; }
 input, textarea, select, button { font-family: inherit; }
 input:focus, textarea:focus { outline: none; }
+/* Kill the browser's grey/blue square the mobile tap-highlight paints over a
+   tapped control — it boxed the Inspire like heart. Keyboard focus is still
+   shown by the :focus-visible outline below. */
+a, button, [role="button"], [tabindex], label, summary { -webkit-tap-highlight-color: transparent; }
 
 /* Placeholders, across 244 fields. Nothing in this file had ever styled them,
    so they were inheriting Tailwind's preflight: `input::placeholder,

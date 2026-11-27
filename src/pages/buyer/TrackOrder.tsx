@@ -12,7 +12,7 @@ import { deliveryEstimate, formatOrderDateTime, isFailedShipment, trackStage } f
 import { useOrderFeedback } from '@/hooks/useOrderFeedback';
 import { OrderFeedbackSheet } from '@/components/buyer/OrderFeedbackSheet';
 import { ReturnRequestSheet } from '@/components/buyer/ReturnRequestSheet';
-import { fetchReturnForOrder, RETURN_REASON_LABEL, RETURN_STATUS_LABEL } from '@/data/returns';
+import { fetchReturnForOrder, fetchReturnShipment, RETURN_REASON_LABEL, RETURN_STATUS_LABEL } from '@/data/returns';
 import { fetchReceiptExtras, cancelOrder, requestCancellation } from '@/data/orders';
 import { printReceipt } from '@/lib/printReceipt';
 import { COMPANY, CONTACT_LINKS } from '@/data/company';
@@ -77,6 +77,12 @@ export function TrackOrder() {
   const { data: returnReq } = useAsync(
     () => (order?.rowId ? fetchReturnForOrder(order.rowId) : Promise.resolve(null)),
     [order?.rowId, returnBump],
+  );
+  // The reverse parcel, once a return has been approved and a pickup booked
+  // (migration 0123), so the buyer can follow it back the way they followed it out.
+  const { data: returnShipment } = useAsync(
+    () => (returnReq?.id ? fetchReturnShipment(returnReq.id) : Promise.resolve(null)),
+    [returnReq?.id, returnBump],
   );
 
   if (!order) {
@@ -345,6 +351,11 @@ export function TrackOrder() {
                     : `${RETURN_REASON_LABEL[returnReq.reason]} · raised ${formatOrderDateTime(returnReq.created_at)}`
                   : 'Damaged, faulty or not what you ordered? Ask the boutique for a return.'}
               </div>
+              {returnShipment?.awb && returnReq && returnReq.status !== 'rejected' && (
+                <div className="agx-code" style={css('font-size:12px;color:var(--ag-muted);margin-top:4px;')}>
+                  Return pickup · {returnShipment.courier_name ?? 'courier'} · AWB {returnShipment.awb}
+                </div>
+              )}
             </div>
             {!returnReq && (
               <button

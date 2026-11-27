@@ -21,7 +21,7 @@ import {
 import { formatOrderDateTime, deliveryEstimate } from '@/lib/orderHistory';
 import { useSettings } from '@/data/settings';
 import { Skeleton, SkeletonGroup, SkeletonRows } from '@/components/ui/Skeleton';
-import { fetchReturnForOrder, resolveReturnRequest, RETURN_REASON_LABEL } from '@/data/returns';
+import { fetchReturnForOrder, resolveReturnRequest, bookReturnPickup, fetchReturnShipment, RETURN_REASON_LABEL, RETURN_STATUS_LABEL } from '@/data/returns';
 
 /** Seller-facing label for a normalised courier scan stage (migration 0067,
  *  0116). The courier's verbatim text is shown beside it; this is the fallback
@@ -68,6 +68,11 @@ export function OrderDetail() {
   const [askingReject, setAskingReject] = useState(false);
   const [returnBusy, setReturnBusy] = useState(false);
   const [shipping, setShipping] = useState(false);
+  // Shown once a courier booking succeeds: the label now exists, so this popup
+  // reminds the seller to print it and tape it on before pickup, with a button
+  // that opens the label. Distinct from the pre-booking packing checklist in the
+  // ship sheet (poly bag + ready), which runs before the AWB is issued.
+  const [labelReminder, setLabelReminder] = useState(false);
   // Cancelling a booked-but-not-collected DTDC pickup (two taps — a booking
   // undoes a real consignment at the courier, so it is confirmed first).
   const [confirmCancelPickup, setConfirmCancelPickup] = useState(false);
@@ -85,23 +90,52 @@ export function OrderDetail() {
     () => (orderId ? fetchReturnForOrder(orderId) : Promise.resolve(null)),
     [orderId, returnBump],
   );
+  // The reverse parcel booked for that return, if any (migration 0123). Keyed on
+  // the request id so it refetches after an approve/retry books one.
+  const { data: returnShipment } = useAsync(
+    () => (returnReq?.id ? fetchReturnShipment(returnReq.id) : Promise.resolve(null)),
+    [returnReq?.id, returnBump],
+  );
 
   /**
-   * Record the seller's decision. `resolve_return_request` is the authority —
-   * it re-checks shop ownership and refuses a rejection with no reason — so a
-   * failure here is shown verbatim rather than translated.
+   * Record the seller's decision.
+   *
+   * REJECT goes through `resolve_return_request` (the authority — it re-checks
+   * shop ownership and refuses a rejection with no reason).
+   *
+   * APPROVE books the Shiprocket reverse pickup in the same click (migration
+   * 0123, via `resolveReturnRequest` → the `return-pickup` function). A booking
+   * failure leaves the request approved, so the seller can retry the pickup
+   * without re-approving — that is what `bookReturnPickup` below is for. Either
+   * way the server's message is shown verbatim.
    */
   const answerReturn = async (status: 'approved' | 'rejected', note?: string) => {
     if (!returnReq) return;
     setReturnBusy(true);
     try {
       await resolveReturnRequest(returnReq.id, status, note);
-      showToast(status === 'approved' ? 'Return approved — the buyer has been told' : 'Buyer notified');
+      showToast(status === 'approved' ? 'Return approved — a pickup has been booked' : 'Buyer notified');
       setAskingReject(false);
       setRejectNote('');
       setReturnBump((n) => n + 1);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not save that decision', 'error');
+    } finally {
+      setReturnBusy(false);
+    }
+  };
+
+  /** Retry the reverse pickup for an already-approved return whose first
+   *  booking failed (empty courier wallet, momentary Shiprocket outage). */
+  const retryReturnPickup = async () => {
+    if (!returnReq) return;
+    setReturnBusy(true);
+    try {
+      await bookReturnPickup(returnReq.id);
+      showToast('Return pickup booked');
+      setReturnBump((n) => n + 1);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not book the pickup', 'error');
     } finally {
       setReturnBusy(false);
     }
@@ -462,6 +496,9 @@ export function OrderDetail() {
       showToast(parts.join(' '), booked.weightEstimated ? 'warning' : 'success');
       reloadShipment();
       reload();
+      // The parcel is booked and the label now exists — prompt the seller to
+      // print it and tape it on before the courier comes.
+      setLabelReminder(true);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Could not book this parcel', 'error');
       // Both carriers declined. Drop the sheet onto the manual form rather than
@@ -639,12 +676,52 @@ export function OrderDetail() {
                   </button>
                 </div>
               )
-            ) : (
+            ) : returnReq.status === 'rejected' ? (
               returnReq.seller_note && (
                 <div style={css('font-size:12.5px;color:var(--ag-muted);margin-top:9px;line-height:1.5;')}>
                   Your reply: {returnReq.seller_note}
                 </div>
               )
+            ) : (
+              // Approved and beyond: show the reverse parcel the pickup booked,
+              // or a retry if the first booking could not be collected.
+              <div style={css('margin-top:11px;')}>
+                <div style={css('font-size:12.5px;font-weight:700;color:var(--ag-ink-2);')}>
+                  {RETURN_STATUS_LABEL[returnReq.status]}
+                </div>
+                {returnShipment?.awb ? (
+                  <div style={css('margin-top:9px;background:var(--ag-surface-2);border:1px solid var(--ag-border);border-radius:12px;padding:11px 12px;')}>
+                    <div style={css('font-size:12px;color:var(--ag-muted);font-weight:700;')}>
+                      Return pickup · {returnShipment.courier_name ?? 'Shiprocket'}
+                    </div>
+                    <div className="agx-code" style={css('font-size:13.5px;font-weight:800;margin-top:3px;')}>AWB {returnShipment.awb}</div>
+                    {returnShipment.last_status && (
+                      <div style={css('font-size:12px;color:var(--ag-muted);margin-top:3px;')}>
+                        Latest: {returnShipment.last_status}
+                      </div>
+                    )}
+                    {returnShipment.label_url && (
+                      <a href={returnShipment.label_url} target="_blank" rel="noopener noreferrer"
+                        style={css('display:inline-block;margin-top:8px;font-size:12.5px;font-weight:800;color:var(--ag-crimson);text-decoration:none;')}>
+                        Print return label →
+                      </a>
+                    )}
+                  </div>
+                ) : returnReq.status === 'approved' ? (
+                  <button
+                    disabled={returnBusy}
+                    onClick={() => void retryReturnPickup()}
+                    style={css(`margin-top:9px;height:42px;padding:0 16px;border:1.5px solid var(--ag-crimson);background:var(--ag-surface);border-radius:12px;font-weight:800;font-size:13px;color:var(--ag-crimson);cursor:pointer;font-family:inherit;opacity:${returnBusy ? 0.6 : 1};`)}
+                  >
+                    {returnBusy ? 'Booking…' : 'Book return pickup'}
+                  </button>
+                ) : null}
+                {returnReq.seller_note && (
+                  <div style={css('font-size:12.5px;color:var(--ag-muted);margin-top:9px;line-height:1.5;')}>
+                    Your reply: {returnReq.seller_note}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -1181,6 +1258,54 @@ export function OrderDetail() {
           onConfirm={shipOrder}
           onBook={bookOrder}
         />
+      )}
+
+      {/* Shown right after a courier booking succeeds. The label now exists, so
+          this is where the seller actually prints it and tapes it on — the
+          pre-booking checklist in the ship sheet only covered packing. */}
+      {labelReminder && (
+        <div
+          style={css('position:fixed;inset:0;z-index:60;background:rgba(20,8,14,.45);display:flex;align-items:flex-end;justify-content:center;')}
+          onClick={() => setLabelReminder(false)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={css('width:100%;max-width:520px;background:var(--ag-surface);border-radius:20px 20px 0 0;padding:20px 20px 22px;box-shadow:0 -12px 40px -18px rgba(107,20,54,.6);')}
+          >
+            <div style={css('display:flex;align-items:center;gap:11px;')}>
+              <span style={css('width:40px;height:40px;flex:none;border-radius:11px;background:var(--ag-surface-2);display:flex;align-items:center;justify-content:center;')}>
+                <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';color:var(--ag-crimson);")}>print</span>
+              </span>
+              <div>
+                <div style={css('font-weight:800;font-size:18px;')}>All booked! Just one last step</div>
+                <div style={css('font-size:12.5px;color:var(--ag-muted);margin-top:2px;')}>Your shipping label is ready to print.</div>
+              </div>
+            </div>
+
+            <div style={css('margin-top:14px;background:var(--ag-surface-2);border:1px solid var(--ag-border);border-radius:14px;padding:13px 15px;')}>
+              <div style={css('font-size:13px;color:var(--ag-ink-2);line-height:1.6;')}>
+                Print it (a xerox is fine too) and tape it flat on the poly bag so the barcode scans. Pop the parcel in, seal it up, and keep it ready for the courier — they can’t pick it up without the label on it.
+              </div>
+            </div>
+
+            <div style={css('display:flex;gap:10px;margin-top:18px;')}>
+              <button
+                onClick={() => setLabelReminder(false)}
+                style={css('flex:1;height:50px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-label);border-radius:13px;font-weight:800;cursor:pointer;font-family:inherit;')}
+              >
+                I’ll print it later
+              </button>
+              <button
+                disabled={labelBusy}
+                onClick={() => { void openLabel(); }}
+                style={css(`flex:1.4;height:50px;border:none;border-radius:13px;background:${labelBusy ? 'var(--ag-surface-2)' : 'linear-gradient(135deg,#D6336C,#B02454)'};color:${labelBusy ? 'var(--ag-muted)' : '#fff'};font-weight:800;cursor:${labelBusy ? 'default' : 'pointer'};font-family:inherit;display:flex;align-items:center;justify-content:center;gap:8px;`)}
+              >
+                <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:19px;")}>print</span>
+                {labelBusy ? 'Opening…' : labelPreparing ? 'Preparing…' : 'Print / download label'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

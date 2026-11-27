@@ -8,27 +8,17 @@
  * table and the two SECURITY DEFINER functions behind it; this is the buyer's
  * half.
  *
- * The rule this sheet has to communicate — and deliberately does NOT enforce,
- * because `request_return()` is the authority and a browser check is only a
- * courtesy:
- *
- *   • A FAULT (damaged, defective, wrong item, not as described) is always
- *     accepted, up to 30 days from delivery, whatever the window is set to.
- *     That one is the marketplace's own commitment, not the shop's.
- *   • GOODWILL (size, changed mind) is gated on THIS BOUTIQUE's return window
- *     (migration 0078), and refused outright when that window is 0. Those two
- *     options are shown greyed with the reason rather than hidden, so the buyer
- *     learns the policy instead of wondering where the option went.
- *
- * The window comes from the boutique rather than from platform settings so the
- * promise on the product page and the rule the server enforces are the same
- * number. They were not: the product page printed a compile-time 7 while
- * `request_return()` checked an admin field set to 0.
+ * FAULT-ONLY (set with the owner, 2026-11-28; enforced in migration 0123).
+ * A return can be raised only for an item that arrived damaged, defective, wrong
+ * or not as described — the marketplace's own commitment, accepted up to 30 days
+ * from delivery whatever the shop's window is set to. The old goodwill reasons
+ * (size, changed mind) are gone: `request_return()` now rejects them outright,
+ * so offering them here would only tee up a refusal. The sheet deliberately does
+ * NOT enforce the 30-day rule itself — `request_return()` is the authority and a
+ * browser check is only a courtesy.
  */
 import { useState } from 'react';
 import { css } from '@/lib/css';
-import { useCatalog } from '@/state/CatalogContext';
-import { shopFulfilment } from '@/lib/fulfilment';
 import { uploadImage } from '@/lib/uploadImage';
 import {
   requestReturn,
@@ -38,13 +28,13 @@ import {
 } from '@/data/returns';
 import { useShop } from '@/state/ShopContext';
 
+// Fault reasons only — see the file header. Kept in step with FAULT_REASONS in
+// src/data/returns.ts and the CHECK in request_return (migration 0123).
 const REASONS: ReturnReason[] = [
   'damaged',
   'defective',
   'wrong_item',
   'not_as_described',
-  'size_issue',
-  'changed_mind',
 ];
 
 const MAX_PHOTOS = 4;
@@ -52,29 +42,23 @@ const MAX_PHOTOS = 4;
 export function ReturnRequestSheet({
   orderId,
   orderNumber,
-  boutiqueId,
   onClose,
   onDone,
 }: {
   orderId: string;
   orderNumber: string;
-  /** Whose window applies. The order's boutique — see the note above. */
+  /** Accepted for call-site compatibility; unused now that returns are
+   *  fault-only and no per-shop window gates the reasons. */
   boutiqueId?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
   const { showToast } = useShop();
-  const { boutiqueById } = useCatalog();
-  const { returnWindowDays: windowDays } = shopFulfilment(boutiqueById(boutiqueId));
   const [reason, setReason] = useState<ReturnReason | null>(null);
   const [note, setNote] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  const goodwillOpen = windowDays > 0;
-  const disabledReason = (r: ReturnReason) => (isFaultReason(r) || goodwillOpen ? null
-    : 'We don’t accept change-of-mind returns');
 
   const addPhotos = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -136,19 +120,16 @@ export function ReturnRequestSheet({
         {/* Reasons */}
         <div style={css('display:flex;flex-direction:column;gap:8px;margin-top:18px;')}>
           {REASONS.map((r) => {
-            const blocked = disabledReason(r);
             const on = reason === r;
             return (
               <button
                 key={r}
                 type="button"
-                disabled={!!blocked}
                 onClick={() => setReason(r)}
                 style={css(
-                  `display:flex;align-items:center;gap:11px;text-align:left;padding:13px 14px;border-radius:14px;font-family:inherit;` +
+                  `display:flex;align-items:center;gap:11px;text-align:left;padding:13px 14px;border-radius:14px;font-family:inherit;cursor:pointer;` +
                     `border:1.5px solid ${on ? 'var(--ag-crimson)' : 'var(--ag-border)'};` +
-                    `background:${on ? 'var(--ag-surface-2)' : 'var(--ag-surface)'};` +
-                    `cursor:${blocked ? 'not-allowed' : 'pointer'};opacity:${blocked ? 0.55 : 1};`,
+                    `background:${on ? 'var(--ag-surface-2)' : 'var(--ag-surface)'};`,
                 )}
               >
                 <span
@@ -162,9 +143,6 @@ export function ReturnRequestSheet({
                   <span style={css('display:block;font-size:14px;font-weight:700;color:var(--ag-ink);')}>
                     {RETURN_REASON_LABEL[r]}
                   </span>
-                  {blocked && (
-                    <span style={css('display:block;font-size:11.5px;color:var(--ag-muted);margin-top:2px;')}>{blocked}</span>
-                  )}
                 </span>
               </button>
             );

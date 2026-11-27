@@ -334,6 +334,11 @@ export interface RefundRow {
   refund_amount: number | null;
   refund_status: 'pending' | 'processed' | 'failed' | null;
   created_at: string;
+  /** A fault return on this order has come physically back to the boutique
+   *  (migration 0123, return_requests.status = 'received'). This is the signal
+   *  that the refund is now owed on a DELIVERED order — the parcel is in the
+   *  shop's hands, so the money should go back to the buyer. */
+  return_received?: boolean;
 }
 
 /**
@@ -375,7 +380,9 @@ export function moneyCollected(r: Pick<RefundRow, 'payment_id' | 'payment_status
  */
 export function isRefundCandidate(r: RefundRow): boolean {
   if (r.refunded) return false;
-  if (r.status !== 'rejected' && r.status !== 'cancelled') return false;
+  // A delivered order is normally not a refund candidate — but once a fault
+  // return on it has come back to the shop (0123), the refund is owed.
+  if (r.status !== 'rejected' && r.status !== 'cancelled' && !r.return_received) return false;
   return moneyCollected(r);
 }
 
@@ -383,19 +390,17 @@ export function isRefundCandidate(r: RefundRow): boolean {
  * The refund workbench feed — recent orders with their refund state, so the
  * admin can see the history and refund the ones that fell through.
  */
-export async function fetchRefunds(): Promise<RefundRow[]> {
-  const { data, error } = await supabase
-    .from('orders')
-    .select('id, order_number, total, shipping_fee, platform_discount, status, payment_id, payment_status, refunded, refunded_at, refund_id, refund_amount, refund_status, created_at, guest_name, boutique:boutiques(name), buyer:profiles!orders_buyer_id_fkey(full_name)')
-    .order('created_at', { ascending: false })
-    .limit(150);
-  if (error) throw error;
-  const rows = (data ?? []) as unknown as (Omit<RefundRow, 'name' | 'boutique'> & {
-    guest_name: string | null;
-    boutique: { name: string } | null;
-    buyer: { full_name: string } | null;
-  })[];
-  return rows.map((r) => ({
+const REFUND_SELECT =
+  'id, order_number, total, shipping_fee, platform_discount, status, payment_id, payment_status, refunded, refunded_at, refund_id, refund_amount, refund_status, created_at, guest_name, boutique:boutiques(name), buyer:profiles!orders_buyer_id_fkey(full_name)';
+
+type RawRefund = Omit<RefundRow, 'name' | 'boutique' | 'return_received'> & {
+  guest_name: string | null;
+  boutique: { name: string } | null;
+  buyer: { full_name: string } | null;
+};
+
+function mapRefundRow(r: RawRefund, returnReceived: boolean): RefundRow {
+  return {
     id: r.id,
     order_number: r.order_number,
     name: r.buyer?.full_name ?? r.guest_name ?? 'Guest',
@@ -412,7 +417,44 @@ export async function fetchRefunds(): Promise<RefundRow[]> {
     refund_amount: r.refund_amount == null ? null : Number(r.refund_amount),
     refund_status: r.refund_status ?? null,
     created_at: r.created_at,
-  }));
+    return_received: returnReceived,
+  };
+}
+
+export async function fetchRefunds(): Promise<RefundRow[]> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select(REFUND_SELECT)
+    .order('created_at', { ascending: false })
+    .limit(150);
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as RawRefund[];
+
+  // Orders with a fault return that has come back to the shop (0123). These are
+  // owed a refund even though the order is 'delivered', so they must surface in
+  // the workbench. Read separately and tolerant of a missing table so a deploy
+  // that is one migration behind still renders the console.
+  const receivedOrderIds = new Set<string>();
+  try {
+    const { data: rr } = await supabase
+      .from('return_requests')
+      .select('order_id')
+      .eq('status', 'received');
+    for (const r of (rr ?? []) as { order_id: string }[]) receivedOrderIds.add(r.order_id);
+  } catch { /* table missing on an un-migrated deploy — no received returns */ }
+
+  const mapped = rows.map((r) => mapRefundRow(r, receivedOrderIds.has(r.id)));
+
+  // A received return on an order older than the 150-row feed would otherwise be
+  // invisible. Pull any such orders in explicitly and prepend them.
+  const inFeed = new Set(mapped.map((r) => r.id));
+  const missing = [...receivedOrderIds].filter((id) => !inFeed.has(id));
+  if (missing.length > 0) {
+    const { data: extra } = await supabase.from('orders').select(REFUND_SELECT).in('id', missing);
+    const extraRows = (extra ?? []) as unknown as RawRefund[];
+    return [...extraRows.map((r) => mapRefundRow(r, true)), ...mapped];
+  }
+  return mapped;
 }
 
 /**

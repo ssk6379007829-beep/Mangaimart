@@ -14,7 +14,7 @@
  */
 
 import type { Filters } from '@/state/ShopContext';
-import { hasTerm } from '@/lib/vocabulary';
+import { hasTerm, termKey } from '@/lib/vocabulary';
 import type { Product } from '@/data/demo';
 
 /** The fields the header search looks through. */
@@ -41,4 +41,40 @@ export function matchesFilters(p: Product, filters: Filters, query = ''): boolea
     // screen, so a term and a filter compose instead of fighting.
     (q === '' || searchable(p).some((f) => f?.toLowerCase().includes(q)))
   );
+}
+
+/** The four groups a filter panel narrows the grid by. */
+export type FacetGroup = 'cats' | 'colors' | 'occasions' | 'sizes';
+
+/** What `availableFacets` returns: the still-reachable option values per group. */
+export type FacetAvailability = Record<FacetGroup, Set<string>>;
+
+/**
+ * The option values a buyer can still reach in each filter group, as `termKey`
+ * sets — so a filter panel can hide the options that would only ever open an
+ * empty grid, and the panel and the grid never disagree about what matches.
+ *
+ * "Reachable" is dynamic and cross-group. A group's set is computed against
+ * every *other* active filter — price, the other groups, the search term — but
+ * with its own selections cleared, so ticking one category never makes its
+ * siblings vanish. Keys are `termKey`s because the options are the admin's
+ * spellings and these are the sellers': an exact-string set would hide the
+ * "Kurta Set" option from a catalogue full of "kurta set".
+ *
+ * Callers keep an already-selected option on screen themselves (`hasTerm` on the
+ * group's own filter), or a selection that empties the grid could not be undone.
+ */
+export function availableFacets(
+  products: readonly Product[],
+  filters: Filters,
+  query = '',
+): FacetAvailability {
+  const present = (except: FacetGroup) =>
+    products.filter((p) => matchesFilters(p, { ...filters, [except]: [] }, query));
+  return {
+    cats: new Set(present('cats').map((p) => termKey(p.cat))),
+    colors: new Set(present('colors').map((p) => termKey(p.color))),
+    occasions: new Set(present('occasions').map((p) => termKey(p.occasion))),
+    sizes: new Set(present('sizes').flatMap((p) => (p.sizes ?? []).map(termKey))),
+  };
 }
