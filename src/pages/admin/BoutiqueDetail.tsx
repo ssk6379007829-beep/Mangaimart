@@ -1,15 +1,21 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { css } from '@/lib/css';
+import { fmtInr } from '@/lib/tokens';
 import { useShop } from '@/state/ShopContext';
+import { useAuth } from '@/auth/AuthContext';
 import { useAsync } from '@/hooks/useAsync';
+import { canSeePlatformMoney } from '@/lib/staffAccess';
 import { TONES } from '@/data/demo';
 import {
   fetchAllBoutiquesAdmin, setBoutiqueStatus, fetchProductCounts,
   type AdminBoutiqueRow,
 } from '@/data/boutiques';
+import { fetchProductsAdmin, setProductStatus, type AdminProductRow } from '@/data/adminProducts';
+import { fetchOrdersForBoutique } from '@/data/orders';
+import { fetchPayoutSummaries, fetchBoutiquePayouts, type PayoutSummary } from '@/data/payouts';
 import { BOUTIQUE_STATUS_LABEL, type BoutiqueStatus } from '@/data/types';
-import { Card, Field, Icon, StatCard, T } from '@/components/admin/kit';
+import { Card, EmptyState, Field, Icon, IconButton, StatCard, StatusPill, T } from '@/components/admin/kit';
 import { adminPath } from '@/lib/adminPath';
 import { BoutiqueReviewPanel } from '@/components/admin/BoutiqueReviewPanel';
 
@@ -32,11 +38,7 @@ const STATUS_CHIP: Record<BoutiqueStatus, { bg: string; fg: string }> = {
   rejected: { bg: 'var(--ag-bad-bg)', fg: 'var(--ag-bad-text)' },
 };
 
-type TabKey = 'overview' | 'application';
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'application', label: 'Application' },
-];
+type TabKey = 'overview' | 'products' | 'orders' | 'payouts' | 'application';
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
@@ -45,7 +47,19 @@ export function BoutiqueDetail() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const { showToast } = useShop();
+  const { profile } = useAuth();
+  // Orders totals and settlement figures are platform money (migration 0086), so
+  // those two tabs are admin-only; a staff reviewer still gets the catalogue,
+  // overview and application.
+  const canMoney = canSeePlatformMoney(profile?.role);
   const [tab, setTab] = useState<TabKey>('overview');
+
+  const tabs = useMemo(() => ([
+    { key: 'overview' as const, label: 'Overview' },
+    { key: 'products' as const, label: 'Products' },
+    ...(canMoney ? [{ key: 'orders' as const, label: 'Orders' }, { key: 'payouts' as const, label: 'Payouts' }] : []),
+    { key: 'application' as const, label: 'Application' },
+  ]), [canMoney]);
 
   const { data: rows, loading, error, reload } = useAsync(() => fetchAllBoutiquesAdmin(), []);
   const all = useMemo(() => rows ?? [], [rows]);
@@ -111,7 +125,7 @@ export function BoutiqueDetail() {
 
       {/* Tabs */}
       <div style={css('display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--ag-border-soft);padding-bottom:2px;')}>
-        {TABS.map((t) => {
+        {tabs.map((t) => {
           const on = t.key === tab;
           return (
             <button
@@ -167,6 +181,12 @@ export function BoutiqueDetail() {
         </div>
       )}
 
+      {tab === 'products' && <ProductsTab boutiqueId={boutique.id} />}
+
+      {tab === 'orders' && canMoney && <OrdersTab boutiqueId={boutique.id} />}
+
+      {tab === 'payouts' && canMoney && <PayoutsTab boutiqueId={boutique.id} />}
+
       {tab === 'application' && (
         <BoutiqueReviewPanel
           key={boutique.id}
@@ -176,6 +196,125 @@ export function BoutiqueDetail() {
           onDecide={decide}
         />
       )}
+    </div>
+  );
+}
+
+/** This shop's catalogue, with one-tap hide / restore moderation. */
+function ProductsTab({ boutiqueId }: { boutiqueId: string }) {
+  const { showToast } = useShop();
+  const { data, loading, reload } = useAsync(
+    () => fetchProductsAdmin({ page: 0, pageSize: 200, status: 'all', boutiqueId }),
+    [boutiqueId],
+  );
+  const rows = data?.rows ?? [];
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const toggle = async (p: AdminProductRow) => {
+    const next = p.status === 'hidden' ? 'active' : 'hidden';
+    setBusyId(p.id);
+    try {
+      await setProductStatus(p.id, next);
+      showToast(next === 'hidden' ? `${p.title} hidden` : `${p.title} restored`);
+      reload();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not update', 'error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (loading && rows.length === 0) return <div style={css(`padding:18px;color:${T.muted};font-size:13.5px;`)}>Loading products…</div>;
+  if (rows.length === 0) return <Card><EmptyState icon="shopping_bag" title="No products" sub="This shop has not listed anything yet." /></Card>;
+
+  return (
+    <div style={css('display:flex;flex-direction:column;gap:10px;')}>
+      {rows.map((p) => (
+        <div key={p.id} style={css(T.card + `padding:12px 14px;display:flex;align-items:center;gap:13px;${p.status === 'hidden' ? 'opacity:.62;' : ''}`)}>
+          <div style={css(`width:46px;height:46px;flex:none;border-radius:11px;overflow:hidden;background:${TONES[p.tone % TONES.length]};`)}>
+            {p.image_url && <img src={p.image_url} alt="" style={css('width:100%;height:100%;object-fit:cover;')} />}
+          </div>
+          <div style={css('flex:1;min-width:0;')}>
+            <div style={css('font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{p.title}</div>
+            <div style={css(`font-size:11.5px;color:${T.muted};`)}>{p.category || '—'} · stock {p.stock}</div>
+          </div>
+          <span style={css('font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;')}>{fmtInr(p.price)}</span>
+          <StatusPill status={p.status} />
+          <IconButton
+            icon={p.status === 'hidden' ? 'visibility' : 'visibility_off'}
+            title={p.status === 'hidden' ? 'Restore to the storefront' : 'Hide from the storefront'}
+            onClick={() => { if (busyId !== p.id) void toggle(p); }}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** This shop's orders — its fulfilment history (admin only). */
+function OrdersTab({ boutiqueId }: { boutiqueId: string }) {
+  const { data, loading } = useAsync(() => fetchOrdersForBoutique(boutiqueId), [boutiqueId]);
+  const orders = data ?? [];
+
+  if (loading && orders.length === 0) return <div style={css(`padding:18px;color:${T.muted};font-size:13.5px;`)}>Loading orders…</div>;
+  if (orders.length === 0) return <Card><EmptyState icon="receipt_long" title="No orders" sub="This shop has not taken any orders yet." /></Card>;
+
+  return (
+    <div style={css('display:flex;flex-direction:column;gap:10px;')}>
+      {orders.map((o) => (
+        <div key={o.id} style={css(T.card + 'padding:13px 15px;display:flex;align-items:center;gap:13px;')}>
+          <div style={css('flex:1;min-width:0;')}>
+            <div style={css('font-weight:700;font-size:13.5px;')}>{o.order_number}</div>
+            <div style={css(`font-size:11.5px;color:${T.muted};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`)}>
+              {o.buyer?.full_name ?? o.guest_name ?? 'Guest'} · {o.items?.length ?? 0} item{(o.items?.length ?? 0) === 1 ? '' : 's'} · {new Date(o.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </div>
+          </div>
+          <StatusPill status={o.refunded ? 'refunded' : o.status} />
+          <span style={css('font-weight:800;font-size:13.5px;font-variant-numeric:tabular-nums;')}>{fmtInr(o.total)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** What this shop has earned and what it has been paid (admin only). */
+function PayoutsTab({ boutiqueId }: { boutiqueId: string }) {
+  const { data: summaries, loading: loadingSummary } = useAsync(() => fetchPayoutSummaries(), []);
+  const { data: history, loading: loadingHistory } = useAsync(() => fetchBoutiquePayouts(boutiqueId), [boutiqueId]);
+  const summary: PayoutSummary | undefined = (summaries ?? []).find((s) => s.boutique_id === boutiqueId);
+  const payouts = history ?? [];
+
+  return (
+    <div style={css('display:flex;flex-direction:column;gap:16px;')}>
+      <div className="agx-adm-g4">
+        <StatCard label="Awaiting settlement" value={summary ? String(summary.orders) : '0'} icon="pending_actions" tint="var(--ag-warn-bg)" ic="var(--ag-gold-text)" sub="delivered orders" />
+        <StatCard label="Goods owed" value={fmtInr(summary?.prepaidGoods ?? 0)} icon="inventory_2" tint="var(--ag-surface-2)" ic="#D6336C" />
+        <StatCard label="Commission" value={fmtInr(summary?.prepaidCommission ?? 0)} icon="percent" tint="var(--ag-info-bg)" ic="var(--ag-info-text)" />
+        <StatCard label="Net payable now" value={fmtInr(summary?.net ?? 0)} icon="account_balance" tint="var(--ag-good-bg)" ic="var(--ag-good-text)" sub={summary?.heldValue ? `${fmtInr(summary.heldValue)} held` : undefined} />
+      </div>
+
+      <div>
+        <div style={css('font-weight:800;font-size:15px;margin-bottom:10px;')}>Settlement history</div>
+        {loadingHistory && payouts.length === 0 ? (
+          <div style={css(`padding:14px;color:${T.muted};font-size:13.5px;`)}>Loading payouts…</div>
+        ) : payouts.length === 0 ? (
+          <Card><EmptyState icon="account_balance" title="No payouts yet" sub={loadingSummary ? 'Checking the current balance…' : 'This shop has not been settled yet.'} /></Card>
+        ) : (
+          <div style={css('display:flex;flex-direction:column;gap:10px;')}>
+            {payouts.map((p) => (
+              <div key={p.id} style={css(T.card + 'padding:13px 15px;display:flex;align-items:center;gap:13px;')}>
+                <div style={css('flex:1;min-width:0;')}>
+                  <div style={css('font-weight:700;font-size:13.5px;')}>{fmtInr(p.amount)} · {p.orders_count} order{p.orders_count === 1 ? '' : 's'}</div>
+                  <div style={css(`font-size:11.5px;color:${T.muted};`)}>
+                    {new Date(p.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} · {p.provider === 'razorpayx' ? 'RazorpayX' : 'Manual'}{p.utr ? ` · UTR ${p.utr}` : ''}
+                  </div>
+                </div>
+                <StatusPill status={p.status === 'paid' ? 'paid' : p.status === 'failed' ? 'failed' : 'pending'} label={p.status} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

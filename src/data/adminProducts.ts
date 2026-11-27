@@ -26,6 +26,8 @@ export interface ProductsQuery {
   search?: string;
   status?: 'all' | ProductStatus | 'deleted';
   lowStock?: boolean;
+  /** Scope the listing to one shop — the admin boutique page's Products tab. */
+  boutiqueId?: string;
 }
 
 const SELECT = 'id, title, category, price, stock, status, featured, image_url, tone, reviews_count, rating, deleted_at, created_at, boutique:boutiques(name, tone)';
@@ -38,6 +40,7 @@ export async function fetchProductsAdmin(q: ProductsQuery): Promise<Paged<AdminP
     query = query.is('deleted_at', null);
     if (q.status && q.status !== 'all') query = query.eq('status', q.status);
   }
+  if (q.boutiqueId) query = query.eq('boutique_id', q.boutiqueId);
   if (q.lowStock) query = query.lte('stock', 5);
   if (q.search?.trim()) {
     const s = `%${q.search.trim()}%`;
