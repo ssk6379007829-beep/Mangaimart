@@ -1,5 +1,6 @@
-import { lazy, Suspense, useEffect, type ComponentType } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { lazyNamed, pickExport } from '@/lib/lazyModule';
 import { RequireRole, FullscreenLoader, homeFor } from '@/auth/RequireRole';
 import { ADMIN_BASE, adminPath } from '@/lib/adminPath';
 import { useAuth } from '@/auth/AuthContext';
@@ -22,10 +23,10 @@ import { POLICY_SLUGS } from '@/data/policies';
  * sellers/admins (gated by RequireRole), so their code is split into
  * per-route chunks with React.lazy. A first-time buyer no longer downloads
  * the entire seller + admin bundle just to view a product. The page modules
- * use named exports, so each import is remapped to a default for lazy().
+ * use named exports, so each import is remapped to a default for lazy() by
+ * `lazyNamed` (in lib/lazyModule), which also heals a post-deploy chunk mismatch
+ * instead of crashing the console — see the note there.
  */
-const lazyNamed = <M, K extends keyof M>(loader: () => Promise<M>, name: K) =>
-  lazy(() => loader().then((m) => ({ default: m[name] as ComponentType })));
 
 /*
  * ── The buyer storefront is split the same way ──────────────────────────────
@@ -70,7 +71,7 @@ const Collections = lazyNamed(() => import('@/pages/buyer/Collections'), 'Collec
 /* Spelled out rather than via `lazyNamed`, which erases props: this is the one
    split page that takes any (`kind`). */
 const CategoryLanding = lazy(() =>
-  import('@/pages/buyer/CategoryLanding').then((m) => ({ default: m.CategoryLanding })),
+  import('@/pages/buyer/CategoryLanding').then((m) => pickExport(m, 'CategoryLanding')),
 );
 const NewArrivals = lazyNamed(() => import('@/pages/buyer/NewArrivals'), 'NewArrivals');
 const BestSellers = lazyNamed(() => import('@/pages/buyer/BestSellers'), 'BestSellers');

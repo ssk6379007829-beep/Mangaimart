@@ -2,8 +2,9 @@ import { Suspense, lazy, useCallback, useEffect, useState, type ReactNode } from
 import { css } from '@/lib/css';
 import { supabase } from '@/lib/supabase';
 import { readMfaState } from '@/lib/mfa';
+import { pickExport } from '@/lib/lazyModule';
 
-const MfaGate = lazy(() => import('@/components/auth/MfaGate').then((m) => ({ default: m.MfaGate })));
+const MfaGate = lazy(() => import('@/components/auth/MfaGate').then((m) => pickExport(m, 'MfaGate')));
 
 /**
  * Hides a block of the page until the session is verified with a second factor.

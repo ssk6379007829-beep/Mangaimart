@@ -1,13 +1,15 @@
 import { Suspense, lazy, useCallback, useEffect, useState, type ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
 import { readMfaState } from '@/lib/mfa';
+import { pickExport } from '@/lib/lazyModule';
 import { FullscreenLoader } from './RequireRole';
 
 // Lazy, because `RequireRole` is a static import from App.tsx and therefore in
 // the entry chunk. The gate is a QR code, a keypad and a backup-code form that
 // a buyer will never see; pulling it into the bundle that has to paint the
 // storefront would undo the code-splitting work this app has already paid for.
-const MfaGate = lazy(() => import('@/components/auth/MfaGate').then((m) => ({ default: m.MfaGate })));
+// `pickExport` heals a post-deploy chunk mismatch instead of crashing the gate.
+const MfaGate = lazy(() => import('@/components/auth/MfaGate').then((m) => pickExport(m, 'MfaGate')));
 
 /**
  * Blocks the console until the session has passed a second factor.
