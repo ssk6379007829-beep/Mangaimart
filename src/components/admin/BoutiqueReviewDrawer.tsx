@@ -1,14 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { css } from '@/lib/css';
-import { useShop } from '@/state/ShopContext';
-import { TONES } from '@/data/demo';
-import { useAsync } from '@/hooks/useAsync';
 import {
-  fetchAllBoutiquesAdmin, setBoutiqueStatus, fetchBoutiquePrivate,
-  fetchBoutiqueDuplicates, fetchProductCounts, type AdminBoutiqueRow,
+  fetchBoutiquePrivate, fetchBoutiqueDuplicates, fetchProductCounts,
+  type AdminBoutiqueRow,
 } from '@/data/boutiques';
 import { BOUTIQUE_STATUS_LABEL, type BoutiquePrivate, type BoutiqueStatus } from '@/data/types';
-import { Skeleton } from '@/components/ui/Skeleton';
 import { resolvePincode } from '@/data/pincodes';
 import type { PincodeArea } from '@/lib/pincode';
 import { lookupIfsc, type IfscResult } from '@/lib/ifsc';
@@ -20,16 +16,17 @@ import {
 } from '@/lib/boutiqueReview';
 
 /**
- * Seller verification queue.
+ * The full boutique application in a slide-in drawer — everything the seven-step
+ * setup wizard collected, the withheld GST/payout fields (read through
+ * `boutique_private`), the automatic checks, and the decision controls.
  *
- * An admin cannot responsibly approve a boutique from a name and a city, so
- * selecting a row opens the full application — everything the seven-step setup
- * wizard collected, including the GST and payout fields that migration 0021
- * withholds from the public API (read here through `boutique_private`).
- *
- * Three outcomes match the seller-side status screen: approve, send back a
- * correction list, or reject with a reason. The last two require a note — being
- * turned down with no explanation leaves the seller nothing to act on.
+ * Extracted from the old Approvals screen so the merged Boutiques page can open
+ * the SAME panel for every boutique, not only the ones in the review queue.
+ * Which decision buttons show depends on the boutique's current status:
+ *  - not yet live  → Reject · Needs changes · Approve
+ *  - live          → Reject · Suspend
+ *  - rejected      → Needs changes · Approve
+ * so one screen handles both "review this application" and "manage this shop".
  *
  * ── What this screen is actually for ────────────────────────────────────────
  * Reading the application proves only that a form was filled in. Nothing the
@@ -37,23 +34,11 @@ import {
  * optional and never checked against the registry, and since payouts are made by
  * hand the bank account is not penny-dropped either. The thing that separates a
  * real boutique from an invented one is a two-minute phone call, and everything
- * on this screen exists to serve that call rather than to replace it.
- *
- * So the drawer does two jobs. It makes the call one tap away — every contact
- * detail is a live `tel:`/`wa.me`/`mailto:` link and the WhatsApp message is
- * already written — and it does, up front, the comparisons a thorough admin
- * would do by hand and nobody does by the fiftieth application: does the pincode
- * belong to the district they typed, is the payout account in the owner's own
- * name, has this bank account been used by a shop that was already rejected. The
- * rules and their wording live in `src/lib/boutiqueReview.ts`; this file only
- * renders them.
+ * on this screen exists to serve that call rather than to replace it. So the
+ * drawer makes the call one tap away and does, up front, the comparisons a
+ * thorough admin would do by hand and nobody does by the fiftieth application.
+ * The rules and their wording live in `src/lib/boutiqueReview.ts`.
  */
-
-const GRID = 'display:grid;grid-template-columns:2fr 1.2fr 1.4fr 1fr 1.2fr;';
-
-type Tab = 'pending' | 'changes_requested' | 'draft' | 'approved' | 'rejected';
-
-const TAB_ORDER: Tab[] = ['pending', 'changes_requested', 'draft', 'approved', 'rejected'];
 
 const STATUS_CHIP: Record<BoutiqueStatus, { bg: string; fg: string }> = {
   draft: { bg: 'var(--ag-surface-2)', fg: 'var(--ag-muted)' },
@@ -75,7 +60,7 @@ const fmtDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
 /** A tag. `compact` is the table-row form — no detail, no wrapping. */
-function Tag({ flag, compact = false }: { flag: ReviewFlag; compact?: boolean }) {
+export function Tag({ flag, compact = false }: { flag: ReviewFlag; compact?: boolean }) {
   const t = TONE_STYLE[flag.tone];
   if (compact) {
     return (
@@ -102,8 +87,7 @@ function Tag({ flag, compact = false }: { flag: ReviewFlag; compact?: boolean })
 }
 
 /** An outbound link rendered as a button, so the admin never copies a value by
- *  hand to act on it. Everything here opens in a new tab: losing the queue
- *  half-way through a review is how a decision gets recorded twice. */
+ *  hand to act on it. Everything here opens in a new tab. */
 function LinkChip({ href, icon, children, tone = 'default' }: {
   href: string; icon: string; children: ReactNode; tone?: 'default' | 'primary' | 'wa';
 }) {
@@ -136,9 +120,7 @@ function ValueLink({ href, children }: { href: string; children: ReactNode }) {
   );
 }
 
-/** Two values that ought to agree, shown together with the verdict between
- *  them. This is the whole point of "compare": the admin should not have to
- *  scroll between two cards and hold a name in their head. */
+/** Two values that ought to agree, shown together with the verdict between them. */
 function Compare({ value, against, agrees, note }: {
   value: ReactNode; against: string; agrees: boolean; note?: string;
 }) {
@@ -157,203 +139,14 @@ function Compare({ value, against, agrees, note }: {
   );
 }
 
-export function Approvals() {
-  const { showToast } = useShop();
-  const [tab, setTab] = useState<Tab>('pending');
-  const [selected, setSelected] = useState<AdminBoutiqueRow | null>(null);
-  const { data: rows, loading, error, reload } = useAsync(() => fetchAllBoutiquesAdmin(), []);
-
-  const all = useMemo(() => rows ?? [], [rows]);
-  const list = useMemo(() => all.filter((b) => b.status === tab), [all, tab]);
-
-  /*
-   * Two lookups the row-level tags need, both scoped to the tab on screen.
-   *
-   * The queue an admin works through is a handful of rows; the approved tab is
-   * the whole marketplace. Resolving every pincode and counting every product
-   * for a list nobody is triaging would be work done for nothing, so both are
-   * keyed off `list` and re-run when the tab changes. `resolvePincode` memoises
-   * and de-duplicates in flight, so revisiting a tab costs nothing.
-   */
-  const [areas, setAreas] = useState<Record<string, PincodeArea | null>>({});
-  const [counts, setCounts] = useState<Map<string, number>>(new Map());
-
-  /* The approved tab is the whole marketplace, and neither tag means anything
-     on a shop that was decided months ago — so the sweep stops at the three
-     tabs someone is actually working through. The drawer resolves its own
-     pincode and product count regardless of tab, so opening an approved shop
-     still shows a complete panel. */
-  const triaging = tab === 'pending' || tab === 'changes_requested' || tab === 'draft';
-
-  useEffect(() => {
-    if (!triaging) return;
-    let cancelled = false;
-    const pins = Array.from(new Set(list.map((b) => (b.pincode ?? '').trim()).filter(Boolean)));
-    void Promise.all(pins.map(async (pin) => [pin, await resolvePincode(pin)] as const))
-      .then((pairs) => {
-        if (cancelled) return;
-        setAreas((prev) => {
-          const next = { ...prev };
-          for (const [pin, area] of pairs) next[pin] = area;
-          return next;
-        });
-      });
-    return () => { cancelled = true; };
-  }, [list, triaging]);
-
-  useEffect(() => {
-    if (!triaging) return;
-    let cancelled = false;
-    void fetchProductCounts(list.map((b) => b.id)).then((m) => {
-      if (!cancelled) setCounts((prev) => new Map([...prev, ...m]));
-    });
-    return () => { cancelled = true; };
-  }, [list, triaging]);
-
-  /** What can be judged without opening the drawer — everything that does not
-   *  need the withheld columns. Only the tags that would stop an approval are
-   *  shown in the table; the rest wait until someone is actually reading. */
-  const rowFlags = useMemo(() => {
-    const out = new Map<string, ReviewFlag[]>();
-    for (const b of list) {
-      const flags = [
-        ...locationFlags(b, areas[(b.pincode ?? '').trim()]),
-        ...publicDuplicates(b, all),
-        ...behaviourFlags(b, counts.has(b.id) ? counts.get(b.id)! : null),
-      ].filter((f) => f.tone === 'bad' || f.tone === 'warn');
-      out.set(b.id, sortFlags(flags));
-    }
-    return out;
-  }, [list, all, areas, counts]);
-
-  const decide = async (b: AdminBoutiqueRow, status: BoutiqueStatus, note?: string) => {
-    try {
-      await setBoutiqueStatus(b.id, status, note);
-      showToast(`${b.name} — ${BOUTIQUE_STATUS_LABEL[status].toLowerCase()}`);
-      setSelected(null);
-      reload();
-      // Shiprocket pickup registration is now self-service (2026-11-25): the
-      // seller's own shop registers it at onboarding and as a book-time safety
-      // net, so approval no longer does it — no admin step is involved at all.
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Update failed', 'error');
-    }
-  };
-
-  return (
-    <div>
-      <div style={css('display:flex;gap:9px;margin-bottom:16px;flex-wrap:wrap;')}>
-        {TAB_ORDER.map((key) => {
-          const on = tab === key;
-          const count = all.filter((b) => b.status === key).length;
-          return (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              style={css(`padding:8px 16px;border:none;border-radius:999px;font-size:13px;font-weight:700;cursor:pointer;background:${on ? 'var(--ag-crimson)' : 'var(--ag-surface)'};color:${on ? '#fff' : 'var(--ag-label)'};font-family:inherit;`)}
-            >
-              {BOUTIQUE_STATUS_LABEL[key]} · {count}
-            </button>
-          );
-        })}
-      </div>
-
-      <div style={css('background:var(--ag-surface);border-radius:18px;overflow:hidden;box-shadow:0 12px 30px -24px rgba(107,20,54,.6);')}>
-        <div className="agx-adm-tablewrap">
-        <div className="agx-adm-tablegrid">
-        <div style={css(`${GRID}padding:14px 20px;background:var(--ag-surface-2);font-size:12px;font-weight:800;color:var(--ag-muted);letter-spacing:.04em;`)}>
-          <span>BOUTIQUE</span><span>CITY</span><span>OWNER</span><span>SUBMITTED</span><span style={css('text-align:right;')}>ACTION</span>
-        </div>
-
-        {loading && (
-          <div role="status" aria-busy="true">
-            <span className="agx-visually-hidden">Loading boutiques…</span>
-            {Array.from({ length: 5 }, (_, i) => (
-              <div key={i} style={css(`${GRID}padding:16px 20px;border-top:1px solid var(--ag-border-soft);align-items:center;`)}>
-                {Array.from({ length: 5 }, (_, j) => <Skeleton key={j} w={`${58 + ((i * 11 + j * 17) % 30)}%`} />)}
-              </div>
-            ))}
-          </div>
-        )}
-        {/* Distinguish "the queue is empty" from "the query failed" — they used to
-            render as the same sentence, which hides a permission error behind
-            what looks like an empty marketplace. */}
-        {!loading && error && (
-          <div style={css('padding:20px;color:var(--ag-bad-text);font-size:13.5px;')}>
-            Could not load boutiques — {error}
-          </div>
-        )}
-        {!loading && !error && list.length === 0 && (
-          <div style={css('padding:20px;color:var(--ag-muted);font-size:13.5px;')}>
-            No boutiques in “{BOUTIQUE_STATUS_LABEL[tab]}”.
-          </div>
-        )}
-
-        {list.map((a, i) => {
-          const flags = rowFlags.get(a.id) ?? [];
-          return (
-          <div key={a.id} style={css(`${GRID}padding:14px 20px;align-items:center;border-top:1px solid var(--ag-border-soft);`)}>
-            <div style={css('display:flex;align-items:center;gap:10px;min-width:0;')}>
-              <div style={css(`width:36px;height:36px;flex:none;border-radius:11px;overflow:hidden;background:${TONES[a.tone ?? i % TONES.length]};display:flex;align-items:center;justify-content:center;font-weight:700;color:rgba(42,26,32,.5);`)}>
-                {a.logo_url ? <img src={a.logo_url} alt="" style={css('width:100%;height:100%;object-fit:cover;')} /> : a.name.charAt(0)}
-              </div>
-              <div style={css('min-width:0;')}>
-                <div style={css('font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;')}>{a.name}</div>
-                {/* Triage before opening: the tags that would stop an approval,
-                    at most three of them. A row with none is not "clean" — it
-                    is "nothing visible from here", which is why the drawer
-                    still shows the full list including what passed. */}
-                {flags.length > 0 && (
-                  <div style={css('display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;')}>
-                    {flags.slice(0, 3).map((f) => <Tag key={f.id} flag={f} compact />)}
-                    {flags.length > 3 && (
-                      <span style={css('font-size:10.5px;font-weight:800;color:var(--ag-muted);align-self:center;')}>+{flags.length - 3}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-            <span style={css('font-size:13px;color:var(--ag-label);')}>{a.city || '—'}</span>
-            <span style={css('font-size:13px;color:var(--ag-label);')}>{a.owner_name || a.owner?.full_name || '—'}</span>
-            <span style={css('font-size:12.5px;color:var(--ag-muted);')}>{fmtDate(a.submitted_at)}</span>
-            <div style={css('display:flex;justify-content:flex-end;')}>
-              <button
-                onClick={() => setSelected(a)}
-                style={css('height:34px;padding:0 14px;border-radius:10px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-crimson);font-weight:800;font-size:12.5px;cursor:pointer;font-family:inherit;')}
-              >
-                Review
-              </button>
-            </div>
-          </div>
-          );
-        })}
-        </div>
-        </div>
-      </div>
-
-      {selected && (
-        <ReviewDrawer
-          key={selected.id}
-          boutique={selected}
-          all={all}
-          seedArea={areas[(selected.pincode ?? '').trim()]}
-          seedCount={counts.has(selected.id) ? counts.get(selected.id)! : null}
-          onClose={() => setSelected(null)}
-          onDecide={decide}
-        />
-      )}
-    </div>
-  );
-}
-
-/** The full application, plus the three decisions an admin can record. */
-function ReviewDrawer({
+/** The full application, plus the decisions an admin can record for this status. */
+export function BoutiqueReviewDrawer({
   boutique, all, seedArea, seedCount, onClose, onDecide,
 }: {
   boutique: AdminBoutiqueRow;
   all: readonly AdminBoutiqueRow[];
-  seedArea: PincodeArea | null | undefined;
-  seedCount: number | null;
+  seedArea?: PincodeArea | null;
+  seedCount?: number | null;
   onClose: () => void;
   onDecide: (b: AdminBoutiqueRow, status: BoutiqueStatus, note?: string) => void;
 }) {
@@ -364,13 +157,14 @@ function ReviewDrawer({
   const [ifsc, setIfsc] = useState<IfscResult | null>(null);
   const [dupes, setDupes] = useState<{ applied: boolean; signals: DuplicateSignal[] } | null>(null);
 
-  /* Seeded from the queue's sweep where it ran, then confirmed for this one
-     boutique regardless. The list only sweeps the tabs being triaged, and a
-     drawer that silently dropped two checks depending on which tab it was
-     opened from would be worse than one that always does the work — it is two
-     requests for a panel a human is about to read for a minute. */
   const [area, setArea] = useState<PincodeArea | null | undefined>(seedArea);
-  const [productCount, setProductCount] = useState<number | null>(seedCount);
+  const [productCount, setProductCount] = useState<number | null>(seedCount ?? null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   useEffect(() => {
     let cancelled = false;
@@ -396,18 +190,12 @@ function ReviewDrawer({
     return () => { cancelled = true; };
   }, [boutique.id]);
 
-  // The withheld-field duplicate check (migration 0106). Never throws — see
-  // fetchBoutiqueDuplicates; `applied: false` is reported to the admin as "not
-  // checked", which is a different thing from "nothing found".
   useEffect(() => {
     let cancelled = false;
     void fetchBoutiqueDuplicates(boutique.id).then((d) => { if (!cancelled) setDupes(d); });
     return () => { cancelled = true; };
   }, [boutique.id]);
 
-  // Resolve the IFSC once the private block arrives — it is the only place the
-  // code exists. Aborted on close so a slow lookup does not set state on an
-  // unmounted drawer.
   useEffect(() => {
     const code = (priv?.bank_ifsc ?? '').trim();
     if (!code) { setIfsc(null); return; }
@@ -454,14 +242,6 @@ function ReviewDrawer({
     },
     {
       title: 'Contact',
-      // From `priv`, not the row: migration 0073 moved these three off the
-      // public column grant (they were readable in bulk with the anon key) and
-      // behind `boutique_private()`, which is the same call this panel already
-      // makes for the GST and payout details below.
-      //
-      // Rendered as live links rather than text. The call is the verification,
-      // and an admin who has to select-and-copy a number to make it will make
-      // fewer calls than one who taps it.
       rows: [
         ['Mobile', phone ? <ValueLink href={`tel:+${normalizeIndianPhone(phone)}`}>{phone}</ValueLink> : '—'],
         ['WhatsApp', (priv?.whatsapp ?? '').trim()
@@ -477,8 +257,6 @@ function ReviewDrawer({
         ['Shop address', dash(boutique.address_line)],
         ['Area', dash(boutique.area)],
         ['City / district', `${dash(boutique.city)} · ${dash(boutique.district)}`],
-        // The pincode carries its own verdict: what the directory says it is,
-        // next to what the seller typed.
         ['State / pincode', area
           ? <Compare
               value={`${dash(boutique.state)} · ${dash(boutique.pincode)}`}
@@ -505,8 +283,6 @@ function ReviewDrawer({
         ['GST number', dash(priv?.gst_number)],
         ['Registration', dash(priv?.business_reg_number)],
         ['UPI ID', dash(priv?.upi_id)],
-        // The account holder against the owner: the one comparison on this
-        // screen that says where the money actually goes.
         ['Account holder', holder && owner
           ? <Compare
               value={holder}
@@ -529,6 +305,8 @@ function ReviewDrawer({
     setBusy(true);
     onDecide(boutique, asking, note.trim());
   };
+
+  const isApproved = boutique.status === 'approved';
 
   return (
     <div
@@ -566,11 +344,7 @@ function ReviewDrawer({
             </div>
           )}
 
-          {/* ── Reach the seller ────────────────────────────────────────────
-              First, above the application, because it is the step that decides
-              the outcome. The WhatsApp message is pre-written: the friction that
-              stops the check from happening is composing the same paragraph for
-              the fiftieth time, not the dialling. */}
+          {/* ── Reach the seller ──────────────────────────────────────────── */}
           <div style={css('background:var(--ag-surface);border:1px solid var(--ag-surface-3);border-radius:18px;padding:15px 17px;')}>
             <div style={css("font-weight:700;font-size:16px;")}>Verify by calling</div>
             <div style={css('font-size:12px;color:var(--ag-muted);font-weight:600;margin-top:3px;line-height:1.55;')}>
@@ -594,10 +368,7 @@ function ReviewDrawer({
             )}
           </div>
 
-          {/* ── What the checks found ───────────────────────────────────────
-              Every rule, including the ones that passed: a panel that only ever
-              shows problems looks the same whether it checked everything or
-              nothing at all. */}
+          {/* ── What the checks found ─────────────────────────────────────── */}
           <div style={css('background:var(--ag-surface);border:1px solid var(--ag-surface-3);border-radius:18px;padding:15px 17px;')}>
             <div style={css('display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;')}>
               <div style={css("font-weight:700;font-size:16px;")}>Automatic checks</div>
@@ -671,10 +442,7 @@ function ReviewDrawer({
             </div>
           ) : (
             <div>
-              {/* Approving publishes the shop AND every product the seller has
-                  already loaded (migration 0038), which is not obvious from a
-                  button that says "Approve". */}
-              {flags.some((f) => f.tone === 'bad') && (
+              {!isApproved && flags.some((f) => f.tone === 'bad') && (
                 <div style={css('font-size:12px;font-weight:700;color:var(--ag-bad-text);line-height:1.55;margin-bottom:9px;')}>
                   Approving publishes this shop and all {productCount ?? 0} of its products immediately. There {flags.filter((f) => f.tone === 'bad').length === 1 ? 'is a contradiction' : 'are contradictions'} above that nobody has explained yet.
                 </div>
@@ -686,18 +454,32 @@ function ReviewDrawer({
                 >
                   Reject
                 </button>
-                <button
-                  onClick={() => setAsking('changes_requested')}
-                  style={css('flex:1;min-width:130px;height:48px;border:1.5px solid var(--ag-gold-border);background:var(--ag-surface);color:#B9862F;border-radius:13px;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;')}
-                >
-                  Needs changes
-                </button>
-                <button
-                  onClick={() => onDecide(boutique, 'approved')}
-                  style={css('flex:1;min-width:130px;height:48px;border:none;background:var(--ag-good-text);color:#fff;border-radius:13px;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;')}
-                >
-                  Approve
-                </button>
+                {isApproved ? (
+                  // A live shop: the only forward action is to take it back down.
+                  // Suspending returns it to the review queue (pending) exactly as
+                  // the old Boutiques table's pause button did.
+                  <button
+                    onClick={() => onDecide(boutique, 'pending')}
+                    style={css('flex:1;min-width:130px;height:48px;border:1.5px solid var(--ag-gold-border);background:var(--ag-surface);color:#B9862F;border-radius:13px;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;')}
+                  >
+                    Suspend
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setAsking('changes_requested')}
+                      style={css('flex:1;min-width:130px;height:48px;border:1.5px solid var(--ag-gold-border);background:var(--ag-surface);color:#B9862F;border-radius:13px;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;')}
+                    >
+                      Needs changes
+                    </button>
+                    <button
+                      onClick={() => onDecide(boutique, 'approved')}
+                      style={css('flex:1;min-width:130px;height:48px;border:none;background:var(--ag-good-text);color:#fff;border-radius:13px;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;')}
+                    >
+                      Approve
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}

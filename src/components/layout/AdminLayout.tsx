@@ -11,36 +11,65 @@ import { canOpen } from '@/lib/staffAccess';
 import { adminPath } from '@/lib/adminPath';
 
 /**
+ * The sidebar, grouped into labelled sections.
+ *
+ * The console had grown to twenty-odd flat tiles with no grouping, which is hard
+ * to scan and hard to find a destination in. They are now clustered by what the
+ * work actually is — Catalog, Orders, Finance, People, Growth, System — with the
+ * two dashboards (Overview / My Work) ungrouped at the top. The section headers
+ * are desktop-only; the mobile tab bar flattens them back to one row.
+ *
  * `only: 'staff'` marks a tile that exists solely because an employee cannot
  * reach the admin equivalent — the work queue standing in for Overview, and the
- * customer directory standing in for the Users page. Admins never see them, so
- * their sidebar is exactly what it was before migration 0086. Every other tile
- * is filtered by `canOpen`, which reads the same list RLS was written against.
+ * customer directory standing in for the Users page. Admins never see them. Every
+ * other tile is filtered by `canOpen`, which reads the same list RLS was written
+ * against, and a section whose tiles all filter out is hidden with its header.
  */
-const NAV = [
-  { label: 'Overview', icon: 'dashboard', to: adminPath('overview'), title: 'Overview', sub: 'Marketplace health, trends and analytics' },
-  { label: 'My Work', icon: 'checklist', to: adminPath('staff'), title: 'My Work', sub: 'Everything waiting on you right now', only: 'staff' },
-  { label: 'Customers', icon: 'diversity_3', to: adminPath('customers'), title: 'Customers', sub: 'Who is buying, and how often', only: 'staff' },
-  { label: 'Approvals', icon: 'verified', to: adminPath('approvals'), title: 'Boutique Approvals', sub: 'Review and verify new boutiques' },
-  { label: 'Catalogue', icon: 'sell', to: adminPath('catalogue'), title: 'Catalogue Vocabulary', sub: 'Categories, occasions and fabrics buyers browse by' },
-  { label: 'Boutiques', icon: 'storefront', to: adminPath('boutiques'), title: 'Boutiques', sub: 'All boutiques on the platform' },
-  { label: 'Users', icon: 'group', to: adminPath('users'), title: 'Users', sub: 'Accounts, and Customer 360° buyer history' },
-  { label: 'Visitors', icon: 'travel_explore', to: adminPath('visitors'), title: 'Visitors', sub: 'Who is on the site now, and who has been' },
-  { label: 'Products', icon: 'shopping_bag', to: adminPath('products'), title: 'Products', sub: 'Moderation and inventory' },
-  { label: 'Reviews', icon: 'reviews', to: adminPath('reviews'), title: 'Reviews', sub: 'Moderate product & boutique reviews' },
-  { label: 'Orders', icon: 'receipt_long', to: adminPath('orders'), title: 'Orders', sub: 'Fulfillment and refunds' },
-  { label: 'Deliveries', icon: 'local_shipping', to: adminPath('deliveries'), title: 'Deliveries', sub: 'Delivery disputes, stalled parcels and the courier list' },
-  { label: 'Feedback', icon: 'rate_review', to: adminPath('feedback'), title: 'Buyer Feedback', sub: 'What buyers say about MangaiMart — private, never published' },
-  { label: 'Refunds', icon: 'currency_exchange', to: adminPath('refunds'), title: 'Refunds', sub: 'Record and track order refunds' },
-  { label: 'Payouts', icon: 'account_balance', to: adminPath('payments'), title: 'Seller Payouts', sub: 'Settlements after commission and deductions' },
-  { label: 'Expenses', icon: 'savings', to: adminPath('expenses'), title: 'Expenses', sub: 'What the platform spends, with proof attached' },
-  { label: 'Advertisements', icon: 'campaign', to: adminPath('ads'), title: 'Advertisements', sub: 'Campaigns and promotions' },
-  { label: 'Coupons', icon: 'local_offer', to: adminPath('coupons'), title: 'Coupons', sub: 'Platform & seller discount codes' },
-  { label: 'Broadcast', icon: 'send', to: adminPath('broadcast'), title: 'Broadcast', sub: 'Send a notification to buyers or sellers' },
-  { label: 'WhatsApp', icon: 'forum', to: adminPath('whatsapp'), title: 'WhatsApp Log', sub: 'Every message sent and received on the platform number' },
-  { label: 'Audit', icon: 'history', to: adminPath('audit'), title: 'Audit Trail', sub: 'Every sensitive admin action, logged' },
-  { label: 'Settings', icon: 'settings', to: adminPath('settings'), title: 'Platform Settings', sub: 'Commission, fees, return window and more' },
+type NavItem = { label: string; icon: string; to: string; title: string; sub: string; only?: 'staff' };
+type NavSection = { heading: string | null; items: NavItem[] };
+
+const SECTIONS: NavSection[] = [
+  { heading: null, items: [
+    { label: 'Overview', icon: 'dashboard', to: adminPath('overview'), title: 'Overview', sub: 'Marketplace health, trends and analytics' },
+    { label: 'My Work', icon: 'checklist', to: adminPath('staff'), title: 'My Work', sub: 'Everything waiting on you right now', only: 'staff' },
+  ] },
+  { heading: 'Catalog', items: [
+    // Approvals folded in: Boutiques is now the single screen for every shop,
+    // reviewing and approving included.
+    { label: 'Boutiques', icon: 'storefront', to: adminPath('boutiques'), title: 'Boutiques', sub: 'Every shop — review, approve and manage' },
+    { label: 'Products', icon: 'shopping_bag', to: adminPath('products'), title: 'Products', sub: 'Moderation and inventory' },
+    { label: 'Reviews', icon: 'reviews', to: adminPath('reviews'), title: 'Reviews', sub: 'Moderate product & boutique reviews' },
+    { label: 'Catalogue', icon: 'sell', to: adminPath('catalogue'), title: 'Catalogue Vocabulary', sub: 'Categories, occasions and fabrics buyers browse by' },
+  ] },
+  { heading: 'Orders', items: [
+    { label: 'Orders', icon: 'receipt_long', to: adminPath('orders'), title: 'Orders', sub: 'Fulfillment and refunds' },
+    { label: 'Deliveries', icon: 'local_shipping', to: adminPath('deliveries'), title: 'Deliveries', sub: 'Delivery disputes, stalled parcels and the courier list' },
+    { label: 'Refunds', icon: 'currency_exchange', to: adminPath('refunds'), title: 'Refunds', sub: 'Record and track order refunds' },
+    { label: 'Feedback', icon: 'rate_review', to: adminPath('feedback'), title: 'Buyer Feedback', sub: 'What buyers say about MangaiMart — private, never published' },
+  ] },
+  { heading: 'Finance', items: [
+    { label: 'Payouts', icon: 'account_balance', to: adminPath('payments'), title: 'Seller Payouts', sub: 'Settlements after commission and deductions' },
+    { label: 'Expenses', icon: 'savings', to: adminPath('expenses'), title: 'Expenses', sub: 'What the platform spends, with proof attached' },
+    { label: 'Coupons', icon: 'local_offer', to: adminPath('coupons'), title: 'Coupons', sub: 'Platform & seller discount codes' },
+    { label: 'Advertisements', icon: 'campaign', to: adminPath('ads'), title: 'Advertisements', sub: 'Campaigns and promotions' },
+  ] },
+  { heading: 'People', items: [
+    { label: 'Users', icon: 'group', to: adminPath('users'), title: 'Users', sub: 'Accounts, and Customer 360° buyer history' },
+    { label: 'Customers', icon: 'diversity_3', to: adminPath('customers'), title: 'Customers', sub: 'Who is buying, and how often', only: 'staff' },
+    { label: 'Visitors', icon: 'travel_explore', to: adminPath('visitors'), title: 'Visitors', sub: 'Who is on the site now, and who has been' },
+  ] },
+  { heading: 'Growth', items: [
+    { label: 'Broadcast', icon: 'send', to: adminPath('broadcast'), title: 'Broadcast', sub: 'Send a notification to buyers or sellers' },
+    { label: 'WhatsApp', icon: 'forum', to: adminPath('whatsapp'), title: 'WhatsApp Log', sub: 'Every message sent and received on the platform number' },
+  ] },
+  { heading: 'System', items: [
+    { label: 'Audit', icon: 'history', to: adminPath('audit'), title: 'Audit Trail', sub: 'Every sensitive admin action, logged' },
+    { label: 'Settings', icon: 'settings', to: adminPath('settings'), title: 'Platform Settings', sub: 'Commission, fees, return window and more' },
+  ] },
 ];
+
+/** Flat list of every tile, for resolving the active page and the mobile bar. */
+const NAV: NavItem[] = SECTIONS.flatMap((s) => s.items);
 
 /** Console routes with no sidebar tile — opened from the header bell, not the
  *  nav. They still need a title, so they are resolved alongside NAV. */
@@ -60,9 +89,16 @@ export function AdminLayout() {
   const { profile, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const role = profile?.role;
-  // Sidebar and mobile tab bar both render this. An admin gets NAV unchanged;
-  // an employee gets their twelve destinations plus the two stand-ins.
-  const nav = NAV.filter((n) => (n.only ? n.only === role : canOpen(role, n.to)));
+  // One access test, used by both the grouped desktop sidebar and the flat
+  // mobile tab bar. An admin gets everything; an employee gets their
+  // destinations plus the two stand-ins.
+  const visible = (n: NavItem) => (n.only ? n.only === role : canOpen(role, n.to));
+  // Mobile tab bar — one flat row, sections dropped.
+  const nav = NAV.filter(visible);
+  // Desktop sidebar — sections with at least one tile this role may open.
+  const sections = SECTIONS
+    .map((s) => ({ heading: s.heading, items: s.items.filter(visible) }))
+    .filter((s) => s.items.length > 0);
   // Routes that exist in the console but deliberately have no sidebar entry —
   // reached from the header instead. Without these the `?? NAV[0]` fallback
   // below labelled them "Overview · Marketplace health at a glance".
@@ -101,22 +137,31 @@ export function AdminLayout() {
             </div>
           </div>
 
-          {nav.map((a) => {
-            const on = location.pathname.startsWith(a.to);
-            return (
-              <button
-                key={a.to}
-                className="agx-adm-nav"
-                data-on={String(on)}
-                aria-current={on ? 'page' : undefined}
-                onClick={() => navigate(a.to)}
-                style={css(`width:100%;display:flex;align-items:center;gap:11px;padding:11px 12px;border:none;border-radius:11px;cursor:pointer;font-size:13.5px;font-weight:${on ? 700 : 600};text-align:left;margin-top:3px;background:${on ? 'var(--ag-surface)' : 'transparent'};color:${on ? 'var(--ag-crimson)' : 'var(--ag-label)'};box-shadow:${on ? '0 6px 16px -10px var(--ag-shadow)' : 'none'};font-family:inherit;`)}
-              >
-                <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:20px;")}>{a.icon}</span>
-                <span>{a.label}</span>
-              </button>
-            );
-          })}
+          {sections.map((section, si) => (
+            <div key={section.heading ?? `top-${si}`} style={css(si > 0 ? 'margin-top:14px;' : '')}>
+              {section.heading && (
+                <div style={css('font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--ag-muted-soft);padding:0 12px 4px;')}>
+                  {section.heading}
+                </div>
+              )}
+              {section.items.map((a) => {
+                const on = location.pathname.startsWith(a.to);
+                return (
+                  <button
+                    key={a.to}
+                    className="agx-adm-nav"
+                    data-on={String(on)}
+                    aria-current={on ? 'page' : undefined}
+                    onClick={() => navigate(a.to)}
+                    style={css(`width:100%;display:flex;align-items:center;gap:11px;padding:11px 12px;border:none;border-radius:11px;cursor:pointer;font-size:13.5px;font-weight:${on ? 700 : 600};text-align:left;margin-top:3px;background:${on ? 'var(--ag-surface)' : 'transparent'};color:${on ? 'var(--ag-crimson)' : 'var(--ag-label)'};box-shadow:${on ? '0 6px 16px -10px var(--ag-shadow)' : 'none'};font-family:inherit;`)}
+                  >
+                    <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:20px;")}>{a.icon}</span>
+                    <span>{a.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
 
           {/* Seventeen destinations do not fit a 900px-tall window, so the last
               few (and Log out) sit below the fold. The list scrolls, but with no

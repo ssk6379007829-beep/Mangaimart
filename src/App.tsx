@@ -154,9 +154,11 @@ const SellerOnboarding = lazyNamed(() => import('@/pages/seller/SellerOnboarding
 
 const AdminLayout = lazyNamed(() => import('@/components/layout/AdminLayout'), 'AdminLayout');
 const Overview = lazyNamed(() => import('@/pages/admin/Overview'), 'Overview');
-const Approvals = lazyNamed(() => import('@/pages/admin/Approvals'), 'Approvals');
 const Catalogue = lazyNamed(() => import('@/pages/admin/Catalogue'), 'Catalogue');
-const BoutiquesTable = lazyNamed(() => import('@/pages/admin/BoutiquesTable'), 'BoutiquesTable');
+// Admin "Boutiques" (not the buyer directory of the same name above): the merged
+// shop-management + approval-queue screen that replaced the old BoutiquesTable
+// and Approvals pages.
+const AdminBoutiques = lazyNamed(() => import('@/pages/admin/Boutiques'), 'Boutiques');
 const Users = lazyNamed(() => import('@/pages/admin/Users'), 'Users');
 const ProductsAdmin = lazyNamed(() => import('@/pages/admin/ProductsAdmin'), 'ProductsAdmin');
 const OrdersAdmin = lazyNamed(() => import('@/pages/admin/OrdersAdmin'), 'OrdersAdmin');
@@ -435,10 +437,13 @@ export default function App() {
         <Route index element={<ConsoleHome />} />
         <Route path="overview" element={<Overview />} />
         <Route path="staff" element={<StaffHome />} />
-        <Route path="approvals" element={<Approvals />} />
+        {/* Approvals merged into Boutiques (one screen for every shop, whatever
+            its status). The old URL still resolves for bookmarks and the
+            notification links that point at it. */}
+        <Route path="approvals" element={<Navigate to={adminPath('boutiques')} replace />} />
         {/* The catalogue vocabulary sellers pick from and buyers browse by. */}
         <Route path="catalogue" element={<Catalogue />} />
-        <Route path="boutiques" element={<BoutiquesTable />} />
+        <Route path="boutiques" element={<AdminBoutiques />} />
         <Route path="users" element={<Users />} />
         {/* Live presence plus the persisted visit history from 0107. The same
             live panel is embedded at the top of Users; this is where the

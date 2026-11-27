@@ -459,9 +459,10 @@ const catalogue: SearchSource<AdminCtx> = {
  */
 const PAGES = [
   { title: 'Overview', sub: 'Marketplace health and trends', icon: 'dashboard', to: adminPath('overview'), keywords: 'dashboard home stats revenue gmv' },
-  { title: 'Approvals', sub: 'Review and verify new boutiques', icon: 'verified', to: adminPath('approvals'), keywords: 'kyc verify pending seller onboarding' },
   { title: 'Catalogue Vocabulary', sub: 'Categories, occasions and fabrics', icon: 'sell', to: adminPath('catalogue'), keywords: 'taxonomy category occasion fabric colour terms' },
-  { title: 'Boutiques', sub: 'All boutiques on the platform', icon: 'storefront', to: adminPath('boutiques'), keywords: 'shops sellers stores' },
+  // Approvals merged into Boutiques — its old search keywords move here so "kyc",
+  // "verify", "approval" etc. still land on the merged screen.
+  { title: 'Boutiques', sub: 'Every shop, review and approve', icon: 'storefront', to: adminPath('boutiques'), keywords: 'shops sellers stores approvals approve kyc verify pending seller onboarding' },
   { title: 'Users', sub: 'Accounts and buyer history', icon: 'group', to: adminPath('users'), keywords: 'customers accounts people buyers admins roles' },
   { title: 'Products', sub: 'Moderation and inventory', icon: 'shopping_bag', to: adminPath('products'), keywords: 'listings catalogue stock hide moderation' },
   { title: 'Reviews', sub: 'Moderate product and boutique reviews', icon: 'reviews', to: adminPath('reviews'), keywords: 'ratings stars moderation' },

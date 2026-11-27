@@ -223,7 +223,7 @@ function PlatformBooks() {
         {[
           { label: 'Buyers', value: data?.counts.buyers ?? 0, icon: 'group', to: adminPath('users') },
           { label: 'Sellers', value: data?.counts.sellers ?? 0, icon: 'storefront', to: adminPath('users') },
-          { label: 'Pending approvals', value: data?.counts.pendingApprovals ?? 0, icon: 'verified', to: adminPath('approvals'), hot: (data?.counts.pendingApprovals ?? 0) > 0 },
+          { label: 'Pending approvals', value: data?.counts.pendingApprovals ?? 0, icon: 'verified', to: adminPath('boutiques'), hot: (data?.counts.pendingApprovals ?? 0) > 0 },
           { label: 'Pending orders', value: data?.counts.pendingOrders ?? 0, icon: 'local_shipping', to: adminPath('orders'), hot: (data?.counts.pendingOrders ?? 0) > 0 },
           { label: 'Low stock', value: data?.counts.lowStock ?? 0, icon: 'inventory_2', to: adminPath('products'), hot: (data?.counts.lowStock ?? 0) > 0 },
         ].map((c) => (

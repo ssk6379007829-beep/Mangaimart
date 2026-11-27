@@ -81,7 +81,7 @@ export function StaffHome() {
     { label: 'Orders awaiting dispatch', sub: 'Paid, not yet shipped', n: q?.awaitingDispatch ?? 0, icon: 'inventory_2', to: adminPath('orders') },
     { label: 'Parcels in transit', sub: 'Shipped, not yet delivered', n: q?.inTransit ?? 0, icon: 'local_shipping', to: adminPath('deliveries') },
     { label: 'Delivery disputes', sub: 'Buyer says it never arrived', n: q?.disputed ?? 0, icon: 'report', to: adminPath('deliveries') },
-    { label: 'Boutiques awaiting approval', sub: 'New shops to review', n: q?.pendingBoutiques ?? 0, icon: 'verified', to: adminPath('approvals') },
+    { label: 'Boutiques awaiting approval', sub: 'New shops to review', n: q?.pendingBoutiques ?? 0, icon: 'verified', to: adminPath('boutiques') },
     { label: 'Catalogue terms requested', sub: 'Sellers asking for a new category or fabric', n: q?.pendingTerms ?? 0, icon: 'sell', to: adminPath('catalogue') },
     { label: 'Ads in review', sub: 'Paid campaigns waiting on a decision', n: q?.adsInReview ?? 0, icon: 'campaign', to: adminPath('ads') },
     { label: 'Reviews with no reply', sub: 'Buyers still waiting to hear back', n: q?.unrepliedReviews ?? 0, icon: 'reviews', to: adminPath('reviews') },
