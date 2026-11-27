@@ -24,6 +24,7 @@ import {
 import type { AdStatus, AdPlacementCode, AdSubjectType } from '@/types/database';
 import { SearchInput } from '@/components/admin/kit';
 import { useSeededSearch } from '@/hooks/useSeededSearch';
+import { HERO_AD_IMAGE_PROMPT } from '@/lib/heroAdPrompt';
 
 // Terminal states carry no creative to fix; everything else is admin-editable.
 const ADMIN_EDITABLE: AdStatus[] = ['pending_payment', 'pending_review', 'changes_requested', 'scheduled', 'live', 'paused'];
@@ -596,6 +597,21 @@ function AdComposer({ placements, onClose, onCreated }: { placements: AdPlacemen
                 </label>
 
                 <div style={css('font-size:12.5px;font-weight:700;color:var(--ag-label);margin-top:14px;')}>Banner image</div>
+                {/* Copy an AI prompt → paste into ChatGPT with a product photo →
+                    upload the result. Same prompt the seller sees. */}
+                <div style={css('margin-top:6px;background:var(--ag-surface-2);border:1px solid var(--ag-border-soft);border-radius:12px;padding:11px 13px;')}>
+                  <div style={css('font-size:12px;color:var(--ag-label);line-height:1.5;')}>
+                    No studio photo? Copy this prompt, paste it into <b>ChatGPT</b> (or any image AI) <b>with a product photo</b>, then upload the result.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { void navigator.clipboard?.writeText(HERO_AD_IMAGE_PROMPT); showToast('AI prompt copied — paste it into ChatGPT with a product photo'); }}
+                    style={css("margin-top:9px;height:38px;padding:0 14px;border-radius:10px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-crimson);font-weight:800;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;font-family:inherit;")}
+                  >
+                    <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:16px;")}>content_copy</span>
+                    Copy AI prompt
+                  </button>
+                </div>
                 <input ref={fileInput} type="file" accept="image/*" style={css('display:none;')} onChange={(e) => { const f = e.target.files?.[0]; if (f) void pickImage(f); e.target.value = ''; }} />
                 <div style={css('display:flex;gap:10px;margin-top:6px;')}>
                   <button onClick={() => fileInput.current?.click()} disabled={uploading} style={css('flex:1;height:44px;border-radius:12px;border:1.5px dashed #D9A9BE;background:var(--ag-surface-2);color:var(--ag-crimson);font-weight:800;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;font-family:inherit;')}>
@@ -607,7 +623,7 @@ function AdComposer({ placements, onClose, onCreated }: { placements: AdPlacemen
                   )}
                 </div>
                 <div style={css('font-size:11.5px;color:var(--ag-muted);margin-top:6px;')}>
-                  Recommended: <b>1600 × 1000&nbsp;px</b> landscape (16:10), JPG or PNG under 2&nbsp;MB. Falls back to the {subjectType === 'boutique' ? 'boutique logo' : 'product photo'} if left empty.
+                  Recommended: <b>1792 × 1024&nbsp;px</b> landscape (16:9), JPG or PNG under 2&nbsp;MB. Falls back to the {subjectType === 'boutique' ? 'boutique logo' : 'product photo'} if left empty.
                 </div>
               </div>
             )}
@@ -841,7 +857,7 @@ function AdEditor({ campaign, onClose, onSaved }: { campaign: AdCampaignAdmin; o
               )}
             </div>
             <div style={css('font-size:11.5px;color:var(--ag-muted);margin-top:6px;')}>
-              Recommended: <b>1600 × 1000&nbsp;px</b> landscape (16:10), JPG or PNG under 2&nbsp;MB.
+              Recommended: <b>1792 × 1024&nbsp;px</b> landscape (16:9), JPG or PNG under 2&nbsp;MB.
             </div>
           </div>
         )}

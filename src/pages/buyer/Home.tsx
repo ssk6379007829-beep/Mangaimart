@@ -577,9 +577,12 @@ export function Home() {
       <div className="agx-scroll" style={css('display:flex;gap:18px;overflow-x:auto;padding-bottom:6px;')}>
         {TOP_BOUTIQUES.map((b) => (
           <div key={b.id} onClick={() => openBoutique(b.id)} className="agx-lift" style={css('flex:none;width:300px;background:var(--ag-surface);border:1px solid var(--ag-surface-3);border-radius:22px;overflow:hidden;cursor:pointer;box-shadow:0 18px 40px -30px rgba(107,20,54,.55);')}>
-            {/* Cover — image only, no name overlay */}
-            <div className="agx-zoom" style={css(`position:relative;aspect-ratio:16/10;background:${TONES[b.tone]};overflow:hidden;`)}>
-              <ImageSlot src={b.image} placeholder={b.name} fallback="brand" sizes="300px" style={css('position:absolute;inset:0;')} />
+            {/* Cover — the shop's cover photo, or its logo filling the frame
+                when there is none (best-selling boutiques lead with identity). */}
+            <div className="agx-zoom" style={css(`position:relative;aspect-ratio:16/10;background:${TONES[b.tone]};overflow:hidden;display:flex;align-items:center;justify-content:center;`)}>
+              {b.image
+                ? <ImageSlot src={b.image} placeholder={b.name} fallback="brand" sizes="300px" style={css('position:absolute;inset:0;')} />
+                : <BoutiqueLogo name={b.name} src={b.logo} size={104} radius={26} />}
             </div>
             {/* Identity — logo + name shown separately below the cover */}
             <div style={css('padding:14px 16px 16px;')}>

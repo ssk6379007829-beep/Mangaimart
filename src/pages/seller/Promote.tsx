@@ -21,6 +21,7 @@ import {
 } from '@/data/ads';
 import type { AdStatus, AdPlacementCode, AdSubjectType } from '@/types/database';
 import type { ProductWithBoutique, BoutiqueRow } from '@/data/types';
+import { HERO_AD_IMAGE_PROMPT } from '@/lib/heroAdPrompt';
 
 const STATUS_META: Record<AdStatus, { label: string; bg: string; fg: string }> = {
   pending_payment: { label: 'Draft · unpaid', bg: 'var(--ag-warn-bg)', fg: 'var(--ag-warn-text)' },
@@ -475,6 +476,22 @@ function AdWizard({ boutique, placements, editCampaign, onClose, onDone }: Wizar
                 </label>
 
                 <div style={css('font-size:12.5px;font-weight:700;color:var(--ag-label);margin-top:14px;')}>Banner image</div>
+                {/* No studio banner? Copy this AI prompt, paste it into ChatGPT
+                    (or any image AI) with your product photo, and upload the
+                    result. The prompt is tuned for the hero's shape. */}
+                <div style={css('margin-top:6px;background:var(--ag-surface-2);border:1px solid var(--ag-border-soft);border-radius:12px;padding:11px 13px;')}>
+                  <div style={css('font-size:12px;color:var(--ag-label);line-height:1.5;')}>
+                    No studio photo? Make one with AI: copy this prompt, paste it into <b>ChatGPT</b> (or any image AI) <b>together with your product photo</b>, then upload the result below.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { void navigator.clipboard?.writeText(HERO_AD_IMAGE_PROMPT); showToast('AI prompt copied — paste it into ChatGPT with your product photo'); }}
+                    style={css("margin-top:9px;height:38px;padding:0 14px;border-radius:10px;border:1.5px solid var(--ag-border);background:var(--ag-surface);color:var(--ag-crimson);font-weight:800;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;font-family:inherit;")}
+                  >
+                    <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:16px;")}>content_copy</span>
+                    Copy AI prompt
+                  </button>
+                </div>
                 <input ref={fileInput} type="file" accept="image/*" style={css('display:none;')} onChange={(e) => { const f = e.target.files?.[0]; if (f) void pickHeroImage(f); e.target.value = ''; }} />
                 <div style={css('display:flex;gap:10px;margin-top:6px;')}>
                   <button onClick={() => fileInput.current?.click()} disabled={uploading} style={css('flex:1;height:46px;border-radius:12px;border:1.5px dashed #D9A9BE;background:var(--ag-surface-2);color:var(--ag-crimson);font-weight:800;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;')}>
@@ -486,7 +503,7 @@ function AdWizard({ boutique, placements, editCampaign, onClose, onDone }: Wizar
                   )}
                 </div>
                 <div style={css('font-size:12px;color:var(--ag-muted);margin-top:6px;line-height:1.55;')}>
-                  Recommended: <b>1600 × 1000&nbsp;px</b> landscape (16:10), JPG or PNG under 2&nbsp;MB.
+                  Recommended: <b>1792 × 1024&nbsp;px</b> landscape (16:9), JPG or PNG under 2&nbsp;MB.
                   {' '}The banner is wider than it is tall on a laptop, so keep faces and the
                   garment in the <b>upper middle</b> — the bottom of the photo is what gets
                   cropped.
