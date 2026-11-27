@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { css } from '@/lib/css';
 import { useAsync } from '@/hooks/useAsync';
-import { T, Card, DataTable, EmptyState, GhostButton, Select, type Column } from '@/components/admin/kit';
+import { T, Card, DataTable, Drawer, EmptyState, Field, GhostButton, Select, type Column } from '@/components/admin/kit';
 import { fetchPlatformFeedback, setPlatformFeedbackPublished, type AdminFeedbackRow } from '@/data/feedback';
 
 /**
@@ -47,6 +47,7 @@ function Stars({ n }: { n: number }) {
 export function Feedback() {
   const { data, loading, reload } = useAsync(fetchPlatformFeedback, []);
   const [filter, setFilter] = useState('all');
+  const [detail, setDetail] = useState<AdminFeedbackRow | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState('');
 
@@ -79,6 +80,7 @@ export function Feedback() {
     setError('');
     try {
       await setPlatformFeedbackPublished(row.id, !row.published);
+      setDetail(null);
       reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not update that.');
@@ -218,6 +220,7 @@ export function Feedback() {
         rows={rows}
         loading={loading}
         getId={(r) => r.id}
+        onRowClick={setDetail}
         empty={
           <EmptyState
             icon="rate_review"
@@ -226,6 +229,58 @@ export function Feedback() {
           />
         }
       />
+
+      <Drawer
+        open={!!detail}
+        onClose={() => setDetail(null)}
+        title="Buyer feedback"
+        footer={detail && (
+          detail.publish_consent && detail.body.trim() ? (
+            <GhostButton
+              icon={detail.published ? 'visibility_off' : 'publish'}
+              tone={detail.published ? 'default' : 'primary'}
+              disabled={busyId === detail.id}
+              onClick={() => void togglePublish(detail)}
+            >
+              {detail.published ? 'Remove from the Home page' : 'Publish to the Home page'}
+            </GhostButton>
+          ) : (
+            <div style={css(`font-size:12.5px;font-weight:700;color:${T.muted};line-height:1.5;`)}>
+              {detail.publish_consent ? 'Nothing to quote — this is a rating with no comment.' : 'Private — the buyer did not agree to be quoted, so it cannot be published.'}
+            </div>
+          )
+        )}
+      >
+        {detail && (
+          <div style={css('display:flex;flex-direction:column;gap:2px;')}>
+            <div style={css('display:flex;align-items:center;gap:10px;margin-bottom:8px;')}>
+              <Stars n={detail.rating} />
+              <span style={css('font-weight:800;font-size:15px;')}>{detail.rating}/5</span>
+            </div>
+            <div style={css(`font-size:14px;line-height:1.6;color:var(--ag-ink);${detail.body.trim() ? '' : `color:${T.muted};font-style:italic;`}`)}>
+              {detail.body.trim() || 'Rating only — the buyer left no comment.'}
+            </div>
+
+            <div style={css('margin-top:14px;')}>
+              <Field label="Buyer" value={detail.buyer?.full_name ?? 'Buyer'} />
+              <Field label="City" value={detail.buyer?.city ?? '—'} />
+              <Field label="When" value={fmtDate(detail.created_at)} />
+              <Field
+                label="Shareable"
+                value={detail.publish_consent
+                  ? <span style={css('color:var(--ag-good-text);font-weight:800;')}>Buyer agreed to be quoted</span>
+                  : <span style={css(`color:${T.muted};`)}>Private</span>}
+              />
+              <Field
+                label="On Home page"
+                value={detail.published
+                  ? <span style={css('color:var(--ag-good-text);font-weight:800;')}>Published</span>
+                  : <span style={css(`color:${T.muted};`)}>Not shown</span>}
+              />
+            </div>
+          </div>
+        )}
+      </Drawer>
     </div>
   );
 }

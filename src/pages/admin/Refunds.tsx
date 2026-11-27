@@ -6,7 +6,7 @@ import { useShop } from '@/state/ShopContext';
 import { useAuth } from '@/auth/AuthContext';
 import { fetchRefunds, refundOrder, clearLegacyRefundFlag, buyerPaid, isRefundCandidate, moneyCollected, type RefundRow } from '@/data/admin';
 import { logAdminAction } from '@/data/activityLog';
-import { StatCard, Select, SearchInput, DataTable, StatusPill, GhostButton, ConfirmDialog, Avatar, T, type Column } from '@/components/admin/kit';
+import { StatCard, Select, SearchInput, DataTable, StatusPill, GhostButton, ConfirmDialog, Avatar, Drawer, Field, T, type Column } from '@/components/admin/kit';
 import { useSeededSearch } from '@/hooks/useSeededSearch';
 
 const compactInr = (n: number) =>
@@ -24,6 +24,10 @@ export function Refunds() {
   // very row that was picked. A seeded term opens on All instead.
   const [filter, setFilter] = useState<Filter>(() => (search ? 'all' : 'candidates'));
   const [target, setTarget] = useState<RefundRow | null>(null);
+  // The row opened for its full record. Separate from `target`, which is the
+  // row a refund/clear is being confirmed for — the detail drawer is read-first,
+  // and its footer is what opens that confirm.
+  const [detail, setDetail] = useState<RefundRow | null>(null);
   const [busy, setBusy] = useState(false);
 
   const all = data ?? [];
@@ -83,6 +87,7 @@ export function Refunds() {
     });
     showToast(reversing ? `${target.order_number} refund flag cleared` : `${target.order_number} refunded`);
     setTarget(null);
+    setDetail(null);
     reload();
   };
 
@@ -190,7 +195,66 @@ export function Refunds() {
         </span>
       </div>
 
-      <DataTable columns={columns} rows={rows} loading={loading} getId={(r) => r.id} />
+      <DataTable columns={columns} rows={rows} loading={loading} getId={(r) => r.id} onRowClick={setDetail} />
+
+      <Drawer
+        open={!!detail}
+        onClose={() => setDetail(null)}
+        title={detail ? `${detail.order_number}` : 'Order'}
+        footer={detail && (() => {
+          const d = detail;
+          const paid = moneyCollected(d);
+          // Same three outcomes the table's action column draws — kept in step so
+          // the drawer never offers a refund the row itself withholds.
+          if (!d.refunded && !paid) {
+            return <div style={css(`font-size:12.5px;font-weight:700;color:${T.muted};`)}>No money was collected for this order — there is nothing to refund.</div>;
+          }
+          if (d.refunded && d.refund_id) {
+            return <div style={css(`font-size:12.5px;font-weight:700;color:${T.muted};`)}>Refund sent to Razorpay — this cannot be reversed from here.</div>;
+          }
+          return (
+            <GhostButton tone={d.refunded ? 'default' : 'primary'} icon={d.refunded ? 'undo' : 'currency_rupee'} onClick={() => setTarget(d)}>
+              {d.refunded ? 'Clear refund flag' : `Refund ${fmtInr(buyerPaid(d))}`}
+            </GhostButton>
+          );
+        })()}
+      >
+        {detail && (
+          <div style={css('display:flex;flex-direction:column;gap:2px;')}>
+            <div style={css('display:flex;align-items:center;gap:12px;margin-bottom:10px;')}>
+              <Avatar name={detail.name} tone={detail.order_number.charCodeAt(detail.order_number.length - 1) % 8} />
+              <div style={css('min-width:0;')}>
+                <div style={css('font-weight:800;font-size:15px;')}>{detail.name}</div>
+                <div style={css(`font-size:12.5px;color:${T.muted};`)}>{detail.boutique}</div>
+              </div>
+            </div>
+
+            <Field label="Order status" value={<StatusPill status={detail.status} />} />
+            <Field label="Payment" value={<StatusPill status={detail.payment_id ? 'paid' : 'cod'} label={detail.payment_id ? 'Online' : 'COD'} />} />
+            <Field label="Money received" value={moneyCollected(detail) ? 'Yes' : 'Never paid'} />
+
+            <div style={css(`margin-top:14px;font-size:11px;font-weight:800;letter-spacing:.05em;color:${T.muted};`)}>WHAT THE BUYER PAID</div>
+            <Field label="Goods" value={fmtInr(detail.total)} />
+            <Field label="Delivery" value={fmtInr(detail.shipping_fee)} />
+            {detail.platform_discount > 0 && (
+              <Field label="Platform discount" value={`− ${fmtInr(detail.platform_discount)}`} />
+            )}
+            <Field label="Buyer paid" value={<span style={css('color:var(--ag-crimson);font-weight:800;')}>{fmtInr(buyerPaid(detail))}</span>} />
+
+            <div style={css(`margin-top:14px;font-size:11px;font-weight:800;letter-spacing:.05em;color:${T.muted};`)}>REFUND</div>
+            <Field label="Refunded" value={detail.refunded ? <StatusPill status="refunded" /> : '—'} />
+            {detail.refunded && (
+              <>
+                <Field label="Reference" value={detail.refund_id ?? 'Recorded by hand'} />
+                <Field label="Amount" value={detail.refund_amount != null ? fmtInr(detail.refund_amount) : fmtInr(buyerPaid(detail))} />
+                {detail.refund_status && <Field label="Gateway status" value={detail.refund_status} />}
+                <Field label="Refunded at" value={detail.refunded_at ? new Date(detail.refunded_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—'} />
+              </>
+            )}
+            <Field label="Order placed" value={new Date(detail.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })} />
+          </div>
+        )}
+      </Drawer>
 
       <ConfirmDialog
         open={!!target}
