@@ -180,6 +180,23 @@ export async function restoreUser(id: string): Promise<AccessChangeResult> {
   return { message: data.message ?? 'User restored.', emailSent: data.emailSent ?? false };
 }
 
+/**
+ * One account's directory row — for the full user page reached by URL, where
+ * there is no list row to hand down. Read directly from `profiles` (admins have
+ * an is_admin() SELECT policy); orders/spent are left at 0 here and filled by
+ * `fetchUserDetail`. Returns null when no such profile exists.
+ */
+export async function fetchUserById(id: string): Promise<AdminUserRow | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, phone, city, address, role, status, deleted_at, created_at')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return { ...(data as Omit<AdminUserRow, 'orders' | 'spent'>), orders: 0, spent: 0 };
+}
+
 export interface UserDetail {
   orders: {
     id: string;

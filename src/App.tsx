@@ -161,6 +161,7 @@ const Catalogue = lazyNamed(() => import('@/pages/admin/Catalogue'), 'Catalogue'
 const AdminBoutiques = lazyNamed(() => import('@/pages/admin/Boutiques'), 'Boutiques');
 const AdminBoutiqueDetail = lazyNamed(() => import('@/pages/admin/BoutiqueDetail'), 'BoutiqueDetail');
 const Users = lazyNamed(() => import('@/pages/admin/Users'), 'Users');
+const AdminUserDetail = lazyNamed(() => import('@/pages/admin/UserDetail'), 'UserDetail');
 const ProductsAdmin = lazyNamed(() => import('@/pages/admin/ProductsAdmin'), 'ProductsAdmin');
 const OrdersAdmin = lazyNamed(() => import('@/pages/admin/OrdersAdmin'), 'OrdersAdmin');
 const Payments = lazyNamed(() => import('@/pages/admin/Payments'), 'Payments');
@@ -447,6 +448,7 @@ export default function App() {
         <Route path="boutiques" element={<AdminBoutiques />} />
         <Route path="boutiques/:id" element={<AdminBoutiqueDetail />} />
         <Route path="users" element={<Users />} />
+        <Route path="users/:id" element={<AdminUserDetail />} />
         {/* Live presence plus the persisted visit history from 0107. The same
             live panel is embedded at the top of Users; this is where the
             history that outlives those open tabs lives. */}

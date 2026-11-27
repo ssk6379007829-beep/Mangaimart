@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import {
   DataTable,
@@ -12,7 +12,6 @@ import {
   Pagination,
   Drawer,
   ConfirmDialog,
-  Field,
   EmptyState,
   Icon,
   TabBar,
@@ -28,7 +27,6 @@ import {
   setUserStatus,
   deleteUserEverywhere,
   restoreUser,
-  fetchUserDetail,
   usersToCsv,
   createUser,
   updateUser,
@@ -43,7 +41,6 @@ import { css } from '@/lib/css';
 import { fmtInr } from '@/lib/tokens';
 import { useShop } from '@/state/ShopContext';
 import type { Role } from '@/types/database';
-import { SkeletonRows } from '@/components/ui/Skeleton';
 import { useSeededSearch } from '@/hooks/useSeededSearch';
 
 const PAGE_SIZE = 12;
@@ -80,12 +77,12 @@ export function Users() {
 function UserDirectory() {
   const { showToast } = useShop();
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [page, setPage] = useState(0);
   const [rawSearch, setRawSearch] = useSeededSearch();
   const search = useDebounced(rawSearch, 300);
   const [role, setRole] = useState<'all' | Role>('all');
   const [status, setStatus] = useState<'all' | 'active' | 'blocked' | 'deleted'>('all');
-  const [detailId, setDetailId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<{ user: AdminUserRow } | null>(null);
   const [blockUser, setBlockUser] = useState<AdminUserRow | null>(null);
   // Typed by the admin, quoted verbatim to the user in the block/close email.
@@ -374,7 +371,7 @@ function UserDirectory() {
             <IconButton icon="restore_from_trash" tone="success" title="Restore" onClick={() => doRestore(user)} />
           ) : (
             <>
-              <IconButton icon="visibility" title="View" onClick={() => setDetailId(user.id)} />
+              <IconButton icon="visibility" title="Open" onClick={() => navigate(adminPath(`users/${user.id}`), { state: { user } })} />
               <IconButton icon="edit" title="Edit" onClick={() => openEdit(user)} />
               {/* Never let an active admin be blocked (that would lock them out of
                   the console); unblocking one is still allowed. */}
@@ -495,12 +492,10 @@ function UserDirectory() {
         rows={rows}
         loading={loading}
         getId={(user) => user.id}
-        onRowClick={(user) => !user.deleted_at && setDetailId(user.id)}
+        onRowClick={(user) => navigate(adminPath(`users/${user.id}`), { state: { user } })}
         empty={<EmptyState icon="group" title="No users found" sub="Try a different search or filter." />}
       />
       {total > 0 && <Pagination page={page} pageSize={PAGE_SIZE} total={total} onPage={setPage} />}
-
-      <UserDrawer id={detailId} onClose={() => setDetailId(null)} row={rows.find((row) => row.id === detailId) ?? null} />
 
       <ConfirmDialog
         open={!!blockUser}
@@ -757,66 +752,3 @@ function ReasonField({ value, onChange, placeholder }: { value: string; onChange
   );
 }
 
-function UserDrawer({ id, row, onClose }: { id: string | null; row: AdminUserRow | null; onClose: () => void }) {
-  const { data, loading } = useAsync(() => (id ? fetchUserDetail(id) : Promise.resolve(null)), [id]);
-
-  return (
-    <Drawer open={!!id} onClose={onClose} title={row?.full_name ?? 'User'}>
-      {row && (
-        <div style={css('display:flex;align-items:center;gap:12px;margin-bottom:16px;')}>
-          <Avatar name={row.full_name} tone={row.full_name.charCodeAt(0) % 8} />
-          <div>
-            <div style={css('font-weight:800;font-size:15px;')}>{row.full_name}</div>
-            <div style={css(`font-size:12.5px;color:${T.muted};`)}>{row.email ?? row.phone ?? '-'}</div>
-          </div>
-        </div>
-      )}
-
-      {row && (
-        <div style={css('background:var(--ag-surface);border-radius:14px;padding:4px 16px;margin-bottom:16px;')}>
-          <Field label="Role" value={row.role} />
-          <Field label="Status" value={<StatusPill status={row.deleted_at ? 'rejected' : row.status} label={row.deleted_at ? 'Deleted' : undefined} />} />
-          <Field label="City" value={row.city || '-'} />
-          <Field label="Address" value={row.address || '-'} />
-          <Field label="Joined" value={new Date(row.created_at).toLocaleDateString('en-IN')} />
-        </div>
-      )}
-
-      <div style={css('display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;')}>
-        <Stat label="Orders" value={String(data?.orders.length ?? 0)} />
-        <Stat label="Spent" value={fmtInr(data?.totalSpent ?? 0)} />
-        <Stat label="Wishlist" value={String(data?.wishlist ?? 0)} />
-      </div>
-
-      <div style={css('font-weight:800;font-size:13px;margin-bottom:8px;')}>Order history</div>
-      {loading && <SkeletonRows rows={3} height={54} thumb={false} label="Loading order history…" />}
-      {!loading && (data?.orders.length ?? 0) === 0 && <EmptyState icon="receipt_long" title="No orders" />}
-      <div style={css('display:flex;flex-direction:column;gap:8px;')}>
-        {(data?.orders ?? []).map((order) => (
-          <div key={order.id} style={css('background:var(--ag-surface);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;')}>
-            <Icon name="receipt_long" size={18} color="var(--ag-muted-soft)" />
-            <div style={css('flex:1;min-width:0;')}>
-              <div style={css('font-weight:700;font-size:12.5px;')}>{order.order_number}</div>
-              <div style={css(`font-size:11px;color:${T.muted};`)}>
-                {order.boutique} · {new Date(order.created_at).toLocaleDateString('en-IN')}
-              </div>
-            </div>
-            <div style={css('text-align:right;')}>
-              <div style={css('font-weight:800;font-size:12.5px;')}>{fmtInr(order.total)}</div>
-              <StatusPill status={order.status} />
-            </div>
-          </div>
-        ))}
-      </div>
-    </Drawer>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={css('background:var(--ag-surface);border-radius:12px;padding:12px;text-align:center;')}>
-      <div style={css("font-weight:700;font-size:18px;line-height:1;")}>{value}</div>
-      <div style={css(`font-size:11px;color:${T.muted};margin-top:3px;`)}>{label}</div>
-    </div>
-  );
-}
