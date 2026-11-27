@@ -12,13 +12,13 @@ import {
   type AdminBoutiqueRow, type BoutiquePatch,
 } from '@/data/boutiques';
 import { fetchProductsAdmin, setProductStatus, type AdminProductRow } from '@/data/adminProducts';
-import { fetchOrdersForBoutique } from '@/data/orders';
+import { fetchOrdersForBoutique, fetchCustomersForBoutique } from '@/data/orders';
 import { fetchReviewsForBoutique } from '@/data/reviews';
 import { fetchReturnsForBoutique } from '@/data/returns';
 import { fetchActivityForEntity } from '@/data/activityLog';
-import { fetchPayoutSummaries, fetchBoutiquePayouts, type PayoutSummary } from '@/data/payouts';
+import { fetchPayoutSummaries, fetchBoutiquePayouts, settlePayout, type PayoutSummary } from '@/data/payouts';
 import { BOUTIQUE_STATUS_LABEL, type BoutiqueStatus } from '@/data/types';
-import { Card, EmptyState, Field, GhostButton, Icon, IconButton, StatCard, StatusPill, T, Toggle } from '@/components/admin/kit';
+import { Avatar, Card, ConfirmDialog, EmptyState, Field, GhostButton, Icon, IconButton, StatCard, StatusPill, T, Toggle } from '@/components/admin/kit';
 import { adminPath } from '@/lib/adminPath';
 import { BoutiqueReviewPanel } from '@/components/admin/BoutiqueReviewPanel';
 
@@ -41,7 +41,7 @@ const STATUS_CHIP: Record<BoutiqueStatus, { bg: string; fg: string }> = {
   rejected: { bg: 'var(--ag-bad-bg)', fg: 'var(--ag-bad-text)' },
 };
 
-type TabKey = 'overview' | 'products' | 'orders' | 'payouts' | 'reviews' | 'delivery' | 'activity' | 'application';
+type TabKey = 'overview' | 'products' | 'orders' | 'customers' | 'payouts' | 'reviews' | 'delivery' | 'activity' | 'application';
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
@@ -60,7 +60,11 @@ export function BoutiqueDetail() {
   const tabs = useMemo(() => ([
     { key: 'overview' as const, label: 'Overview' },
     { key: 'products' as const, label: 'Products' },
-    ...(canMoney ? [{ key: 'orders' as const, label: 'Orders' }, { key: 'payouts' as const, label: 'Payouts' }] : []),
+    ...(canMoney ? [
+      { key: 'orders' as const, label: 'Orders' },
+      { key: 'customers' as const, label: 'Customers' },
+      { key: 'payouts' as const, label: 'Payouts' },
+    ] : []),
     { key: 'reviews' as const, label: 'Reviews & Returns' },
     ...(canMoney ? [{ key: 'delivery' as const, label: 'Delivery' }, { key: 'activity' as const, label: 'Activity' }] : []),
     { key: 'application' as const, label: 'Application' },
@@ -181,6 +185,8 @@ export function BoutiqueDetail() {
 
       {tab === 'orders' && canMoney && <OrdersTab boutiqueId={boutique.id} />}
 
+      {tab === 'customers' && canMoney && <CustomersTab boutiqueId={boutique.id} />}
+
       {tab === 'payouts' && canMoney && <PayoutsTab boutiqueId={boutique.id} />}
 
       {tab === 'reviews' && <ReviewsReturnsTab boutiqueId={boutique.id} canReturns={canMoney} />}
@@ -295,10 +301,31 @@ function OrdersTab({ boutiqueId }: { boutiqueId: string }) {
 
 /** What this shop has earned and what it has been paid (admin only). */
 function PayoutsTab({ boutiqueId }: { boutiqueId: string }) {
-  const { data: summaries, loading: loadingSummary } = useAsync(() => fetchPayoutSummaries(), []);
-  const { data: history, loading: loadingHistory } = useAsync(() => fetchBoutiquePayouts(boutiqueId), [boutiqueId]);
+  const { showToast } = useShop();
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { data: summaries, loading: loadingSummary } = useAsync(() => fetchPayoutSummaries(), [refreshKey]);
+  const { data: history, loading: loadingHistory } = useAsync(() => fetchBoutiquePayouts(boutiqueId), [boutiqueId, refreshKey]);
   const summary: PayoutSummary | undefined = (summaries ?? []).find((s) => s.boutique_id === boutiqueId);
   const payouts = history ?? [];
+
+  // Settling records a payout for the delivered, not-yet-settled balance. The
+  // Payouts page remains the place to send payout advice / run RazorpayX; this
+  // is the quick "mark it paid" an admin wants while looking at the shop.
+  const settle = async () => {
+    setBusy(true);
+    try {
+      const rec = await settlePayout(boutiqueId);
+      showToast(`Settled ${fmtInr(rec.amount)} to ${rec.boutique?.name ?? 'the shop'}`);
+      setConfirming(false);
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not settle', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div style={css('display:flex;flex-direction:column;gap:16px;')}>
@@ -308,6 +335,24 @@ function PayoutsTab({ boutiqueId }: { boutiqueId: string }) {
         <StatCard label="Commission" value={fmtInr(summary?.prepaidCommission ?? 0)} icon="percent" tint="var(--ag-info-bg)" ic="var(--ag-info-text)" />
         <StatCard label="Net payable now" value={fmtInr(summary?.net ?? 0)} icon="account_balance" tint="var(--ag-good-bg)" ic="var(--ag-good-text)" sub={summary?.heldValue ? `${fmtInr(summary.heldValue)} held` : undefined} />
       </div>
+
+      {summary && summary.net > 0 && (
+        <div>
+          <GhostButton tone="primary" icon="payments" onClick={() => setConfirming(true)}>
+            Settle {fmtInr(summary.net)} now
+          </GhostButton>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={confirming}
+        title="Settle this payout?"
+        message={`Record a payout of ${fmtInr(summary?.net ?? 0)} for ${summary?.orders ?? 0} delivered order${summary?.orders === 1 ? '' : 's'}. This marks them settled and moves the balance to the shop's payout history. Send the payout advice from the Payouts page.`}
+        confirmLabel="Settle now"
+        busy={busy}
+        onConfirm={() => void settle()}
+        onCancel={() => setConfirming(false)}
+      />
 
       <div>
         <div style={css('font-weight:800;font-size:15px;margin-bottom:10px;')}>Settlement history</div>
@@ -331,6 +376,41 @@ function PayoutsTab({ boutiqueId }: { boutiqueId: string }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Who buys from this shop, by lifetime spend (admin only). A registered buyer
+ *  opens their account page; a guest has no account to open. */
+function CustomersTab({ boutiqueId }: { boutiqueId: string }) {
+  const navigate = useNavigate();
+  const { data, loading } = useAsync(() => fetchCustomersForBoutique(boutiqueId), [boutiqueId]);
+  const customers = [...(data ?? [])].sort((a, b) => b.spent - a.spent);
+
+  if (loading && customers.length === 0) return <div style={css(`padding:18px;color:${T.muted};font-size:13.5px;`)}>Loading customers…</div>;
+  if (customers.length === 0) return <Card><EmptyState icon="diversity_3" title="No customers yet" sub="Buyers of this shop will appear here." /></Card>;
+
+  return (
+    <div style={css('display:flex;flex-direction:column;gap:10px;')}>
+      {customers.map((c) => {
+        const registered = !c.buyer_id.startsWith('guest:');
+        return (
+          <div
+            key={c.buyer_id}
+            className={registered ? 'agx-adm-row' : undefined}
+            data-clickable={registered ? 'true' : undefined}
+            onClick={registered ? () => navigate(adminPath(`users/${c.buyer_id}`)) : undefined}
+            style={css(T.card + `padding:12px 15px;display:flex;align-items:center;gap:13px;${registered ? 'cursor:pointer;' : ''}`)}
+          >
+            <Avatar name={c.name} tone={c.tone} />
+            <div style={css('flex:1;min-width:0;')}>
+              <div style={css('font-weight:700;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;')}>{c.name}{registered ? '' : ' · guest'}</div>
+              <div style={css(`font-size:11.5px;color:${T.muted};`)}>{c.city || '—'} · {c.orders} order{c.orders === 1 ? '' : 's'}</div>
+            </div>
+            <span style={css('font-weight:800;font-size:13.5px;font-variant-numeric:tabular-nums;color:var(--ag-crimson);')}>{fmtInr(c.spent)}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

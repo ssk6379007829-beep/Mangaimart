@@ -98,6 +98,7 @@ export function OrdersAdmin() {
 }
 
 export function OrderDetail({ o, onSetStatus }: { o: OrderWithDetails; onSetStatus: (s: OrderWithDetails['status']) => void }) {
+  const navigate = useNavigate();
   const { commission_pct: pct } = useSettings();
   const { profile } = useAuth();
   const showMoney = canSeePlatformMoney(profile?.role);
@@ -155,7 +156,13 @@ export function OrderDetail({ o, onSetStatus }: { o: OrderWithDetails; onSetStat
         <div style={css('font-weight:800;font-size:13px;margin-bottom:8px;')}>Items</div>
         <div style={css('display:flex;flex-direction:column;gap:8px;')}>
           {o.items.map((it) => (
-            <div key={it.id} style={css('background:var(--ag-surface);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;')}>
+            <div
+              key={it.id}
+              className={it.product_id ? 'agx-adm-row' : undefined}
+              data-clickable={it.product_id ? 'true' : undefined}
+              onClick={it.product_id ? () => navigate(adminPath(`products/${it.product_id}`)) : undefined}
+              style={css(`background:var(--ag-surface);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;${it.product_id ? 'cursor:pointer;' : ''}`)}
+            >
               <div style={css('flex:1;min-width:0;')}>
                 <div style={css('font-weight:700;font-size:12.5px;')}>{it.title}</div>
                 <div style={css(`font-size:11px;color:${T.muted};`)}>Qty {it.qty}{it.size ? ` · ${it.size}` : ''}{it.color ? ` · ${it.color}` : ''}</div>

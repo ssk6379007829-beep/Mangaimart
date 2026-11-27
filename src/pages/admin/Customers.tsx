@@ -1,7 +1,11 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { css } from '@/lib/css';
 import { fmtInr } from '@/lib/tokens';
+import { useAuth } from '@/auth/AuthContext';
 import { useAsync } from '@/hooks/useAsync';
+import { canSeePlatformMoney } from '@/lib/staffAccess';
+import { adminPath } from '@/lib/adminPath';
 import { fetchCustomersAdmin } from '@/data/orders';
 import { StatCard, SearchInput, Select, DataTable, Avatar, T, type Column } from '@/components/admin/kit';
 import type { CustomerStat } from '@/data/orders';
@@ -12,6 +16,12 @@ const compactInr = (n: number) =>
 type SortKey = 'spent' | 'orders' | 'name';
 
 export function Customers() {
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  // Only an admin can open the full account page (Users is admin-only). A
+  // registered buyer groups under their profile id; a guest groups under a
+  // synthetic `guest:` key that has no account to open.
+  const canOpenUser = canSeePlatformMoney(profile?.role);
   const { data, loading } = useAsync(() => fetchCustomersAdmin(), []);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('spent');
@@ -69,7 +79,15 @@ export function Customers() {
         ]} />
       </div>
 
-      <DataTable columns={columns} rows={rows} loading={loading} getId={(c) => c.buyer_id} />
+      <DataTable
+        columns={columns}
+        rows={rows}
+        loading={loading}
+        getId={(c) => c.buyer_id}
+        onRowClick={canOpenUser
+          ? (c) => { if (!c.buyer_id.startsWith('guest:')) navigate(adminPath(`users/${c.buyer_id}`)); }
+          : undefined}
+      />
     </div>
   );
 }
