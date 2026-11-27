@@ -1454,6 +1454,11 @@ export interface Database {
         /** `CUSTOMER_SELECT`, with `guest_phone` hashed to keep it a grouping key. */
         Returns: unknown;
       };
+      staff_customer_orders: {
+        /** One registered buyer's order history; `is_staff()`-guarded (0124). */
+        Args: { p_buyer: string };
+        Returns: unknown;
+      };
       staff_set_order_status: {
         Args: { p_id: string; p_status: string };
         Returns: unknown;

@@ -6,8 +6,8 @@ import { useAuth } from '@/auth/AuthContext';
 import { useAsync } from '@/hooks/useAsync';
 import { canSeePlatformMoney } from '@/lib/staffAccess';
 import { adminPath } from '@/lib/adminPath';
-import { fetchCustomersAdmin } from '@/data/orders';
-import { StatCard, SearchInput, Select, DataTable, Avatar, T, type Column } from '@/components/admin/kit';
+import { fetchCustomersAdmin, fetchCustomerOrders } from '@/data/orders';
+import { StatCard, SearchInput, Select, DataTable, Avatar, Drawer, EmptyState, Field, Icon, StatusPill, T, type Column } from '@/components/admin/kit';
 import type { CustomerStat } from '@/data/orders';
 
 const compactInr = (n: number) =>
@@ -25,6 +25,9 @@ export function Customers() {
   const { data, loading } = useAsync(() => fetchCustomersAdmin(), []);
   const [q, setQ] = useState('');
   const [sort, setSort] = useState<SortKey>('spent');
+  // Staff can't open the admin Users page, so they get a drawer with the
+  // customer's history here instead (fed by the staff-safe RPC).
+  const [detail, setDetail] = useState<CustomerStat | null>(null);
 
   const all = data ?? [];
   const rows = useMemo(() => {
@@ -84,10 +87,67 @@ export function Customers() {
         rows={rows}
         loading={loading}
         getId={(c) => c.buyer_id}
-        onRowClick={canOpenUser
-          ? (c) => { if (!c.buyer_id.startsWith('guest:')) navigate(adminPath(`users/${c.buyer_id}`)); }
-          : undefined}
+        onRowClick={(c) => {
+          if (c.buyer_id.startsWith('guest:')) return;        // no account to open
+          if (canOpenUser) navigate(adminPath(`users/${c.buyer_id}`));
+          else setDetail(c);                                   // staff: drawer
+        }}
       />
+
+      <CustomerDrawer customer={detail} onClose={() => setDetail(null)} />
     </div>
+  );
+}
+
+/** A customer's profile summary + order history — the staff view that stands in
+ *  for the admin account page. Order history comes through the staff-safe RPC
+ *  (migration 0124); it is an empty list until that migration is applied. */
+function CustomerDrawer({ customer, onClose }: { customer: CustomerStat | null; onClose: () => void }) {
+  const { data: orders, loading } = useAsync(
+    () => (customer ? fetchCustomerOrders(customer.buyer_id) : Promise.resolve([])),
+    [customer?.buyer_id],
+  );
+
+  return (
+    <Drawer open={!!customer} onClose={onClose} title={customer?.name ?? 'Customer'}>
+      {customer && (
+        <div style={css('display:flex;flex-direction:column;gap:2px;')}>
+          <div style={css('display:flex;align-items:center;gap:12px;margin-bottom:10px;')}>
+            <Avatar name={customer.name} tone={customer.tone} />
+            <div style={css('min-width:0;')}>
+              <div style={css('font-weight:800;font-size:15px;')}>{customer.name}</div>
+              <div style={css(`font-size:12.5px;color:${T.muted};`)}>{customer.city || '—'}</div>
+            </div>
+          </div>
+
+          <Field label="Orders" value={String(customer.orders)} />
+          <Field label="Lifetime spend" value={fmtInr(customer.spent)} />
+          <Field label="Average order" value={fmtInr(customer.orders ? customer.spent / customer.orders : 0)} />
+
+          <div style={css('font-weight:800;font-size:13px;margin:16px 0 8px;')}>Order history</div>
+          {loading && (orders?.length ?? 0) === 0 ? (
+            <div style={css(`padding:12px;color:${T.muted};font-size:13px;`)}>Loading…</div>
+          ) : (orders?.length ?? 0) === 0 ? (
+            <EmptyState icon="receipt_long" title="No orders" />
+          ) : (
+            <div style={css('display:flex;flex-direction:column;gap:8px;')}>
+              {(orders ?? []).map((o) => (
+                <div key={o.id} style={css('background:var(--ag-surface);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;')}>
+                  <Icon name="receipt_long" size={18} color="var(--ag-muted-soft)" />
+                  <div style={css('flex:1;min-width:0;')}>
+                    <div style={css('font-weight:700;font-size:12.5px;')}>{o.order_number}</div>
+                    <div style={css(`font-size:11px;color:${T.muted};`)}>{o.boutique} · {new Date(o.created_at).toLocaleDateString('en-IN')}</div>
+                  </div>
+                  <div style={css('text-align:right;')}>
+                    <div style={css('font-weight:800;font-size:12.5px;')}>{fmtInr(o.total)}</div>
+                    <StatusPill status={o.status} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Drawer>
   );
 }

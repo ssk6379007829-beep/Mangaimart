@@ -459,6 +459,36 @@ export async function fetchCustomersForBoutique(boutiqueId: string): Promise<Cus
   return aggregateCustomers((data ?? []) as unknown as CustomerRow[]);
 }
 
+export interface CustomerOrder {
+  id: string;
+  order_number: string;
+  total: number;
+  status: string;
+  created_at: string;
+  boutique: string;
+}
+
+/**
+ * One registered buyer's order history, for the Customers page's drill-in.
+ *
+ * Goes through `staff_customer_orders` (migration 0124), a SECURITY DEFINER
+ * function that checks `is_staff()` — so staff (who hold no RLS policy on
+ * `orders`, migration 0086) and admins alike can read it, and nobody else can.
+ * Degrades to an empty list until 0124 is applied rather than throwing, the same
+ * way the duplicate-signals read does before its migration lands.
+ */
+export async function fetchCustomerOrders(buyerId: string): Promise<CustomerOrder[]> {
+  const { data, error } = await supabase.rpc('staff_customer_orders', { p_buyer: buyerId });
+  if (error) {
+    if (error.code === 'PGRST202' || /staff_customer_orders/i.test(error.message ?? '')) {
+      console.warn('[customers] order history unavailable — apply migration 0124.');
+      return [];
+    }
+    throw error;
+  }
+  return (data ?? []) as CustomerOrder[];
+}
+
 export async function fetchCustomersAdmin(): Promise<CustomerStat[]> {
   // Staff get the same rows with `guest_phone` replaced by a hash of itself, so
   // anonymous orders still group into one customer without the number leaving
