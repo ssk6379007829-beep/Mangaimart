@@ -158,7 +158,7 @@ export function TopBoutiques() {
               <div className="agx-zoom" style={css(`position:relative;aspect-ratio:16/10;background:${TONES[b.tone]};overflow:hidden;`)}>
                 {/* `.agx-bgrid` is one card per row on a phone, so the cover is
                     full-bleed there — not the half-width tile ImageSlot assumes. */}
-                <ImageSlot src={b.image} placeholder={`${b.name} — cover`} sizes="(min-width: 1060px) 33vw, (min-width: 620px) 50vw, 100vw" style={css('position:absolute;inset:0;')} />
+                <ImageSlot src={b.image} placeholder={b.name} fallback="brand" sizes="(min-width: 1060px) 33vw, (min-width: 620px) 50vw, 100vw" style={css('position:absolute;inset:0;')} />
                 <span style={css("position:absolute;left:12px;top:12px;min-width:28px;height:28px;padding:0 8px;border-radius:10px;background:linear-gradient(140deg,#E14A7E,#B02454 70%,#8E1C44);color:#fff;font-variant-numeric:tabular-nums;font-size:12.5px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 14px -6px rgba(176,36,84,.9);")}>
                   {i + 1}
                 </span>

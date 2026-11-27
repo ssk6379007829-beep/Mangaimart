@@ -563,23 +563,9 @@ export function TrackOrder() {
                       </div>
                     )}
 
-                    {/* No link is a real outcome, not a bug: most Indian courier
-                        tracking pages take no docket in the URL. */}
-                    {shipment.tracking_url ? (
-                      <a
-                        href={shipment.tracking_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={css('display:flex;align-items:center;justify-content:center;gap:7px;width:100%;margin-top:10px;height:42px;border-radius:12px;background:linear-gradient(135deg,#D6336C,#B02454);color:#fff;font-weight:800;font-size:13px;text-decoration:none;')}
-                      >
-                        Track on {shipment.courier_name}
-                        <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:16px;")}>open_in_new</span>
-                      </a>
-                    ) : (
-                      <div style={css('margin-top:8px;font-size:12px;color:var(--ag-muted);line-height:1.5;')}>
-                        Quote this number to {shipment.courier_name} to check where your parcel is.
-                      </div>
-                    )}
+                    {/* No external courier link on the buyer side — the buyer
+                        tracks here, on our own timeline below. The courier name
+                        and docket stay above for reference and to copy. */}
                   </div>
                 )}
 

@@ -579,7 +579,7 @@ export function Home() {
           <div key={b.id} onClick={() => openBoutique(b.id)} className="agx-lift" style={css('flex:none;width:300px;background:var(--ag-surface);border:1px solid var(--ag-surface-3);border-radius:22px;overflow:hidden;cursor:pointer;box-shadow:0 18px 40px -30px rgba(107,20,54,.55);')}>
             {/* Cover — image only, no name overlay */}
             <div className="agx-zoom" style={css(`position:relative;aspect-ratio:16/10;background:${TONES[b.tone]};overflow:hidden;`)}>
-              <ImageSlot src={b.image} placeholder={`${b.name} — cover`} sizes="300px" style={css('position:absolute;inset:0;')} />
+              <ImageSlot src={b.image} placeholder={b.name} fallback="brand" sizes="300px" style={css('position:absolute;inset:0;')} />
             </div>
             {/* Identity — logo + name shown separately below the cover */}
             <div style={css('padding:14px 16px 16px;')}>
