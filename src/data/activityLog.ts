@@ -46,3 +46,24 @@ export async function fetchActivity(limit = 30): Promise<ActivityRow[]> {
   if (error) throw error;
   return (data ?? []) as ActivityRow[];
 }
+
+/**
+ * Logged admin actions against one entity — e.g. a boutique's own page timeline.
+ * Best-effort: the audit log is admin-only (migration 0086 gives staff no policy
+ * on it), so a staff caller or a missing table resolves to an empty list rather
+ * than breaking the page it feeds.
+ */
+export async function fetchActivityForEntity(entityType: string, entityId: string, limit = 30): Promise<ActivityRow[]> {
+  const { data, error } = await supabase
+    .from('admin_activity_log')
+    .select('*')
+    .eq('entity_type', entityType)
+    .eq('entity_id', entityId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.warn('[activity] entity log unavailable:', error.message);
+    return [];
+  }
+  return (data ?? []) as ActivityRow[];
+}

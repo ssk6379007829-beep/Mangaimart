@@ -8,14 +8,17 @@ import { useAsync } from '@/hooks/useAsync';
 import { canSeePlatformMoney } from '@/lib/staffAccess';
 import { TONES } from '@/data/demo';
 import {
-  fetchAllBoutiquesAdmin, setBoutiqueStatus, fetchProductCounts,
-  type AdminBoutiqueRow,
+  fetchAllBoutiquesAdmin, setBoutiqueStatus, fetchProductCounts, updateBoutique,
+  type AdminBoutiqueRow, type BoutiquePatch,
 } from '@/data/boutiques';
 import { fetchProductsAdmin, setProductStatus, type AdminProductRow } from '@/data/adminProducts';
 import { fetchOrdersForBoutique } from '@/data/orders';
+import { fetchReviewsForBoutique } from '@/data/reviews';
+import { fetchReturnsForBoutique } from '@/data/returns';
+import { fetchActivityForEntity } from '@/data/activityLog';
 import { fetchPayoutSummaries, fetchBoutiquePayouts, type PayoutSummary } from '@/data/payouts';
 import { BOUTIQUE_STATUS_LABEL, type BoutiqueStatus } from '@/data/types';
-import { Card, EmptyState, Field, Icon, IconButton, StatCard, StatusPill, T } from '@/components/admin/kit';
+import { Card, EmptyState, Field, GhostButton, Icon, IconButton, StatCard, StatusPill, T, Toggle } from '@/components/admin/kit';
 import { adminPath } from '@/lib/adminPath';
 import { BoutiqueReviewPanel } from '@/components/admin/BoutiqueReviewPanel';
 
@@ -38,7 +41,7 @@ const STATUS_CHIP: Record<BoutiqueStatus, { bg: string; fg: string }> = {
   rejected: { bg: 'var(--ag-bad-bg)', fg: 'var(--ag-bad-text)' },
 };
 
-type TabKey = 'overview' | 'products' | 'orders' | 'payouts' | 'application';
+type TabKey = 'overview' | 'products' | 'orders' | 'payouts' | 'reviews' | 'delivery' | 'activity' | 'application';
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
@@ -58,6 +61,8 @@ export function BoutiqueDetail() {
     { key: 'overview' as const, label: 'Overview' },
     { key: 'products' as const, label: 'Products' },
     ...(canMoney ? [{ key: 'orders' as const, label: 'Orders' }, { key: 'payouts' as const, label: 'Payouts' }] : []),
+    { key: 'reviews' as const, label: 'Reviews & Returns' },
+    ...(canMoney ? [{ key: 'delivery' as const, label: 'Delivery' }, { key: 'activity' as const, label: 'Activity' }] : []),
     { key: 'application' as const, label: 'Application' },
   ]), [canMoney]);
 
@@ -186,6 +191,12 @@ export function BoutiqueDetail() {
       {tab === 'orders' && canMoney && <OrdersTab boutiqueId={boutique.id} />}
 
       {tab === 'payouts' && canMoney && <PayoutsTab boutiqueId={boutique.id} />}
+
+      {tab === 'reviews' && <ReviewsReturnsTab boutiqueId={boutique.id} canReturns={canMoney} />}
+
+      {tab === 'delivery' && canMoney && <DeliveryTab boutique={boutique} onSaved={reload} />}
+
+      {tab === 'activity' && canMoney && <ActivityTab boutique={boutique} />}
 
       {tab === 'application' && (
         <BoutiqueReviewPanel
@@ -316,6 +327,226 @@ function PayoutsTab({ boutiqueId }: { boutiqueId: string }) {
         )}
       </div>
     </div>
+  );
+}
+
+function Stars({ n }: { n: number }) {
+  return (
+    <span style={css('display:inline-flex;gap:1px;')} aria-label={`${n} out of 5`}>
+      {[1, 2, 3, 4, 5].map((i) => <Icon key={i} name="star" size={14} color={i <= n ? '#E8A13C' : 'var(--ag-border)'} />)}
+    </span>
+  );
+}
+
+/** The shop's public reviews (read-only) and any return requests against it. */
+function ReviewsReturnsTab({ boutiqueId, canReturns }: { boutiqueId: string; canReturns: boolean }) {
+  const { data: reviews, loading } = useAsync(() => fetchReviewsForBoutique(boutiqueId), [boutiqueId]);
+  const { data: returns } = useAsync(
+    () => (canReturns ? fetchReturnsForBoutique(boutiqueId) : Promise.resolve([])),
+    [boutiqueId, canReturns],
+  );
+  const rv = reviews ?? [];
+  const rt = returns ?? [];
+
+  return (
+    <div style={css('display:flex;flex-direction:column;gap:16px;')}>
+      {canReturns && rt.length > 0 && (
+        <div>
+          <div style={css('font-weight:800;font-size:15px;margin-bottom:10px;')}>Return requests</div>
+          <div style={css('display:flex;flex-direction:column;gap:10px;')}>
+            {rt.map((r) => (
+              <div key={r.id} style={css(T.card + 'padding:13px 15px;display:flex;align-items:center;gap:13px;')}>
+                <div style={css('flex:1;min-width:0;')}>
+                  <div style={css('font-weight:700;font-size:13px;text-transform:capitalize;')}>{r.reason.replace(/_/g, ' ')}</div>
+                  {r.note && <div style={css(`font-size:12px;color:${T.muted};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`)}>{r.note}</div>}
+                </div>
+                <StatusPill status={r.status} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div style={css('display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap;')}>
+          <div style={css('font-weight:800;font-size:15px;')}>Reviews</div>
+          <a href={adminPath('reviews')} style={css('font-size:12.5px;font-weight:700;color:var(--ag-crimson);text-decoration:none;')}>Moderate in Reviews →</a>
+        </div>
+        {loading && rv.length === 0 ? (
+          <div style={css(`padding:14px;color:${T.muted};font-size:13.5px;`)}>Loading reviews…</div>
+        ) : rv.length === 0 ? (
+          <Card><EmptyState icon="reviews" title="No reviews yet" sub="Buyer reviews for this shop will appear here." /></Card>
+        ) : (
+          <div style={css('display:flex;flex-direction:column;gap:12px;')}>
+            {rv.map((r) => (
+              <div key={r.id} style={css(T.card + 'padding:15px 17px;')}>
+                <div style={css('display:flex;align-items:center;gap:10px;flex-wrap:wrap;')}>
+                  <Stars n={r.rating} />
+                  <span style={css('font-weight:700;font-size:13px;')}>{r.author_name ?? 'Anonymous'}</span>
+                  {r.verified_purchase && <span style={css('font-size:10.5px;font-weight:800;color:var(--ag-good-text);background:var(--ag-good-bg);padding:2px 7px;border-radius:6px;')}>Verified</span>}
+                  <span style={css(`font-size:11.5px;color:${T.muted};`)}>· {r.product_title ?? 'Product'}</span>
+                </div>
+                {r.body && <div style={css('font-size:13.5px;line-height:1.55;margin-top:8px;color:var(--ag-ink);')}>{r.body}</div>}
+                {r.seller_reply && (
+                  <div style={css('margin-top:10px;padding:10px 12px;background:var(--ag-surface-2);border-radius:10px;')}>
+                    <div style={css(`font-size:10.5px;font-weight:800;color:${T.muted};text-transform:uppercase;letter-spacing:.04em;`)}>Seller reply</div>
+                    <div style={css('font-size:12.5px;margin-top:3px;')}>{r.seller_reply}</div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Editable delivery & fulfilment terms — the seller's own (0076–0078), which
+ *  the admin can correct here. NULL in a zone band means the shop does not
+ *  deliver there. */
+function DeliveryTab({ boutique, onSaved }: { boutique: AdminBoutiqueRow; onSaved: () => void }) {
+  const { showToast } = useShop();
+  const [available, setAvailable] = useState(!!boutique.delivery_available);
+  const [areas, setAreas] = useState(boutique.delivery_areas ?? '');
+  const [local, setLocal] = useState<string>(String(boutique.delivery_charge ?? 0));
+  const [district, setDistrict] = useState<string>(boutique.delivery_charge_district?.toString() ?? '');
+  const [stateRate, setStateRate] = useState<string>(boutique.delivery_charge_state?.toString() ?? '');
+  const [national, setNational] = useState<string>(boutique.delivery_charge_national?.toString() ?? '');
+  const [freeOver, setFreeOver] = useState<string>(String(boutique.free_delivery_over ?? 0));
+  const [dispatchMin, setDispatchMin] = useState<string>(String(boutique.dispatch_days_min ?? 1));
+  const [dispatchMax, setDispatchMax] = useState<string>(String(boutique.dispatch_days_max ?? 3));
+  const [returnDays, setReturnDays] = useState<string>(String(boutique.return_window_days ?? 0));
+  const [busy, setBusy] = useState(false);
+
+  const num = (v: string): number => Math.max(0, Math.round(Number(v) || 0));
+  const numOrNull = (v: string): number | null => (v.trim() === '' ? null : num(v));
+
+  const save = async () => {
+    setBusy(true);
+    const patch: BoutiquePatch = {
+      delivery_available: available,
+      delivery_areas: areas.trim(),
+      delivery_charge: num(local),
+      delivery_charge_district: numOrNull(district),
+      delivery_charge_state: numOrNull(stateRate),
+      delivery_charge_national: numOrNull(national),
+      free_delivery_over: num(freeOver),
+      dispatch_days_min: num(dispatchMin),
+      dispatch_days_max: num(dispatchMax),
+      return_window_days: num(returnDays),
+    };
+    try {
+      await updateBoutique(boutique.id, patch);
+      showToast('Delivery terms updated');
+      onSaved();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not save', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const label = css('font-size:12px;font-weight:700;color:var(--ag-label);display:block;margin-top:14px;');
+  const field = css('width:100%;margin-top:6px;border:1.5px solid var(--ag-border);background:var(--ag-surface);border-radius:11px;padding:0 13px;height:42px;font-size:14px;font-weight:600;color:var(--ag-ink);font-family:inherit;box-sizing:border-box;font-variant-numeric:tabular-nums;');
+
+  return (
+    <div style={css('max-width:620px;display:flex;flex-direction:column;gap:16px;')}>
+      <Card>
+        <div style={css('display:flex;align-items:center;justify-content:space-between;gap:12px;')}>
+          <div>
+            <div style={css('font-weight:800;font-size:15px;')}>Delivery</div>
+            <div style={css(`font-size:12px;color:${T.muted};margin-top:2px;`)}>The shop's own charges, priced by distance. Leave a band blank if the shop doesn't deliver there.</div>
+          </div>
+          <Toggle on={available} onChange={setAvailable} label="Delivery available" />
+        </div>
+
+        {available && (
+          <>
+            <label style={label}>Delivery areas (free text)
+              <input value={areas} onChange={(e) => setAreas(e.target.value)} placeholder="e.g. Coimbatore city" style={field} />
+            </label>
+            <div className="agx-adm-g2">
+              <label style={label}>Local charge (₹)
+                <input inputMode="numeric" value={local} onChange={(e) => setLocal(e.target.value)} style={field} />
+              </label>
+              <label style={label}>Free delivery over (₹, local + district)
+                <input inputMode="numeric" value={freeOver} onChange={(e) => setFreeOver(e.target.value)} style={field} />
+              </label>
+              <label style={label}>Same district (₹)
+                <input inputMode="numeric" value={district} onChange={(e) => setDistrict(e.target.value)} placeholder="blank = no delivery" style={field} />
+              </label>
+              <label style={label}>Same state (₹)
+                <input inputMode="numeric" value={stateRate} onChange={(e) => setStateRate(e.target.value)} placeholder="blank = no delivery" style={field} />
+              </label>
+              <label style={label}>Rest of India (₹)
+                <input inputMode="numeric" value={national} onChange={(e) => setNational(e.target.value)} placeholder="blank = no delivery" style={field} />
+              </label>
+            </div>
+          </>
+        )}
+      </Card>
+
+      <Card>
+        <div style={css('font-weight:800;font-size:15px;')}>Dispatch & returns</div>
+        <div className="agx-adm-g2">
+          <label style={label}>Dispatch min (days)
+            <input inputMode="numeric" value={dispatchMin} onChange={(e) => setDispatchMin(e.target.value)} style={field} />
+          </label>
+          <label style={label}>Dispatch max (days)
+            <input inputMode="numeric" value={dispatchMax} onChange={(e) => setDispatchMax(e.target.value)} style={field} />
+          </label>
+          <label style={label}>Change-of-mind return window (days)
+            <input inputMode="numeric" value={returnDays} onChange={(e) => setReturnDays(e.target.value)} style={field} />
+          </label>
+        </div>
+        <div style={css(`font-size:11.5px;color:${T.muted};margin-top:10px;line-height:1.5;`)}>
+          The platform's own 30-day cover for a faulty item is separate and always applies — this is only the shop's change-of-mind window.
+        </div>
+      </Card>
+
+      <div>
+        <GhostButton tone="primary" icon="save" onClick={() => { if (!busy) void save(); }}>
+          {busy ? 'Saving…' : 'Save delivery terms'}
+        </GhostButton>
+      </div>
+    </div>
+  );
+}
+
+/** A plain history of what has happened to this shop. */
+function ActivityTab({ boutique }: { boutique: AdminBoutiqueRow }) {
+  const { data: log } = useAsync(() => fetchActivityForEntity('boutique', boutique.id), [boutique.id]);
+
+  const events = useMemo(() => {
+    const out: { at: string; label: string; icon: string }[] = [];
+    if (boutique.created_at) out.push({ at: boutique.created_at, label: 'Joined MangaiMart', icon: 'person_add' });
+    if (boutique.submitted_at) out.push({ at: boutique.submitted_at, label: 'Submitted for review', icon: 'send' });
+    if (boutique.reviewed_at) out.push({ at: boutique.reviewed_at, label: `Reviewed → ${BOUTIQUE_STATUS_LABEL[boutique.status]}`, icon: 'verified' });
+    for (const a of log ?? []) {
+      out.push({ at: a.created_at, label: `${a.action.replace(/[._]/g, ' ')} · ${a.actor_name}`, icon: 'history' });
+    }
+    return out.sort((x, y) => new Date(y.at).getTime() - new Date(x.at).getTime());
+  }, [boutique, log]);
+
+  if (events.length === 0) return <Card><EmptyState icon="history" title="No activity" sub="Nothing has been recorded for this shop yet." /></Card>;
+
+  return (
+    <Card>
+      <div style={css('display:flex;flex-direction:column;gap:2px;')}>
+        {events.map((e, i) => (
+          <div key={i} style={css(`display:flex;align-items:flex-start;gap:12px;padding:11px 0;${i > 0 ? 'border-top:1px solid var(--ag-border-soft);' : ''}`)}>
+            <span style={css(`width:32px;height:32px;flex:none;border-radius:10px;background:var(--ag-surface-2);display:flex;align-items:center;justify-content:center;color:var(--ag-crimson);`)}>
+              <Icon name={e.icon} size={17} />
+            </span>
+            <div style={css('flex:1;min-width:0;')}>
+              <div style={css('font-size:13px;font-weight:700;text-transform:capitalize;')}>{e.label}</div>
+              <div style={css(`font-size:11.5px;color:${T.muted};`)}>{new Date(e.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 
