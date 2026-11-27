@@ -205,6 +205,7 @@ export function BoutiqueDetail() {
 /** This shop's catalogue, with one-tap hide / restore moderation. */
 function ProductsTab({ boutiqueId }: { boutiqueId: string }) {
   const { showToast } = useShop();
+  const navigate = useNavigate();
   const { data, loading, reload } = useAsync(
     () => fetchProductsAdmin({ page: 0, pageSize: 200, status: 'all', boutiqueId }),
     [boutiqueId],
@@ -232,7 +233,12 @@ function ProductsTab({ boutiqueId }: { boutiqueId: string }) {
   return (
     <div style={css('display:flex;flex-direction:column;gap:10px;')}>
       {rows.map((p) => (
-        <div key={p.id} style={css(T.card + `padding:12px 14px;display:flex;align-items:center;gap:13px;${p.status === 'hidden' ? 'opacity:.62;' : ''}`)}>
+        <div
+          key={p.id}
+          className="agx-adm-row" data-clickable="true"
+          onClick={() => navigate(adminPath(`products/${p.id}`), { state: { product: p } })}
+          style={css(T.card + `padding:12px 14px;display:flex;align-items:center;gap:13px;cursor:pointer;${p.status === 'hidden' ? 'opacity:.62;' : ''}`)}
+        >
           <div style={css(`width:46px;height:46px;flex:none;border-radius:11px;overflow:hidden;background:${TONES[p.tone % TONES.length]};`)}>
             {p.image_url && <img src={p.image_url} alt="" style={css('width:100%;height:100%;object-fit:cover;')} />}
           </div>
@@ -242,11 +248,13 @@ function ProductsTab({ boutiqueId }: { boutiqueId: string }) {
           </div>
           <span style={css('font-weight:800;font-size:13px;font-variant-numeric:tabular-nums;')}>{fmtInr(p.price)}</span>
           <StatusPill status={p.status} />
-          <IconButton
-            icon={p.status === 'hidden' ? 'visibility' : 'visibility_off'}
-            title={p.status === 'hidden' ? 'Restore to the storefront' : 'Hide from the storefront'}
-            onClick={() => { if (busyId !== p.id) void toggle(p); }}
-          />
+          <span onClick={(e) => e.stopPropagation()} style={css('display:flex;')}>
+            <IconButton
+              icon={p.status === 'hidden' ? 'visibility' : 'visibility_off'}
+              title={p.status === 'hidden' ? 'Restore to the storefront' : 'Hide from the storefront'}
+              onClick={() => { if (busyId !== p.id) void toggle(p); }}
+            />
+          </span>
         </div>
       ))}
     </div>
@@ -255,6 +263,7 @@ function ProductsTab({ boutiqueId }: { boutiqueId: string }) {
 
 /** This shop's orders — its fulfilment history (admin only). */
 function OrdersTab({ boutiqueId }: { boutiqueId: string }) {
+  const navigate = useNavigate();
   const { data, loading } = useAsync(() => fetchOrdersForBoutique(boutiqueId), [boutiqueId]);
   const orders = data ?? [];
 
@@ -264,7 +273,12 @@ function OrdersTab({ boutiqueId }: { boutiqueId: string }) {
   return (
     <div style={css('display:flex;flex-direction:column;gap:10px;')}>
       {orders.map((o) => (
-        <div key={o.id} style={css(T.card + 'padding:13px 15px;display:flex;align-items:center;gap:13px;')}>
+        <div
+          key={o.id}
+          className="agx-adm-row" data-clickable="true"
+          onClick={() => navigate(adminPath(`orders/${o.id}`))}
+          style={css(T.card + 'padding:13px 15px;display:flex;align-items:center;gap:13px;cursor:pointer;')}
+        >
           <div style={css('flex:1;min-width:0;')}>
             <div style={css('font-weight:700;font-size:13.5px;')}>{o.order_number}</div>
             <div style={css(`font-size:11.5px;color:${T.muted};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;`)}>

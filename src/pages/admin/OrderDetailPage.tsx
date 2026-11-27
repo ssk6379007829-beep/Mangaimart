@@ -95,7 +95,14 @@ export function OrderDetailPage() {
         <div style={css('flex:1;min-width:0;')}>
           <div style={css("font-family:var(--ag-display);font-weight:700;font-size:22px;line-height:1.15;")}>{order.order_number}</div>
           <div style={css(`font-size:13px;color:${T.muted};margin-top:3px;`)}>
-            {name} · {order.boutique?.name ?? '—'} · {new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            {order.buyer_id
+              ? <CrossLink onClick={() => navigate(adminPath(`users/${order.buyer_id}`))}>{name}</CrossLink>
+              : name}
+            {' · '}
+            {order.boutique_id
+              ? <CrossLink onClick={() => navigate(adminPath(`boutiques/${order.boutique_id}`))}>{order.boutique?.name ?? '—'}</CrossLink>
+              : (order.boutique?.name ?? '—')}
+            {' · '}{new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
           </div>
         </div>
         <StatusPill status={order.status} />
@@ -120,6 +127,15 @@ export function OrderDetailPage() {
 
       <OrderDetail o={order} onSetStatus={(s) => void setStatusFor(s)} />
     </Shell>
+  );
+}
+
+/** An inline link to another admin entity's page. */
+function CrossLink({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} style={css('background:none;border:none;padding:0;cursor:pointer;font:inherit;color:var(--ag-crimson);font-weight:700;text-decoration:underline;text-underline-offset:2px;')}>
+      {children}
+    </button>
   );
 }
 

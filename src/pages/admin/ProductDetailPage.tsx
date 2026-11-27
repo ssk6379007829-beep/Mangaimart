@@ -124,7 +124,12 @@ export function ProductDetailPage() {
         </div>
         <div style={css('flex:1;min-width:0;')}>
           <div style={css("font-family:var(--ag-display);font-weight:700;font-size:22px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{p.title}</div>
-          <div style={css(`font-size:13px;color:${T.muted};margin-top:3px;`)}>{p.boutique?.name ?? '—'} · {p.category || '—'}</div>
+          <div style={css(`font-size:13px;color:${T.muted};margin-top:3px;`)}>
+            {rich?.boutique_id
+              ? <button onClick={() => navigate(adminPath(`boutiques/${rich.boutique_id}`))} style={css('background:none;border:none;padding:0;cursor:pointer;font:inherit;color:var(--ag-crimson);font-weight:700;text-decoration:underline;text-underline-offset:2px;')}>{p.boutique?.name ?? '—'}</button>
+              : (p.boutique?.name ?? '—')}
+            {' · '}{p.category || '—'}
+          </div>
         </div>
         <div style={css('text-align:right;')}>
           <div style={css('font-weight:800;font-size:18px;font-variant-numeric:tabular-nums;')}>{fmtInr(p.price)}</div>

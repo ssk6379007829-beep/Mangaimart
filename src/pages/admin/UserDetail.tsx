@@ -186,7 +186,12 @@ export function UserDetail() {
         ) : (
           <div style={css('display:flex;flex-direction:column;gap:10px;')}>
             {(detail?.orders ?? []).map((o) => (
-              <div key={o.id} style={css(T.card + 'padding:13px 15px;display:flex;align-items:center;gap:13px;')}>
+              <div
+                key={o.id}
+                className="agx-adm-row" data-clickable="true"
+                onClick={() => navigate(adminPath(`orders/${o.id}`))}
+                style={css(T.card + 'padding:13px 15px;display:flex;align-items:center;gap:13px;cursor:pointer;')}
+              >
                 <Icon name="receipt_long" size={18} color="var(--ag-muted-soft)" />
                 <div style={css('flex:1;min-width:0;')}>
                   <div style={css('font-weight:700;font-size:13px;')}>{o.order_number}</div>
