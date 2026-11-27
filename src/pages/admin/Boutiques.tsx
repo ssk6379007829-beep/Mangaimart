@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { css } from '@/lib/css';
-import { useShop } from '@/state/ShopContext';
 import { TONES } from '@/data/demo';
 import { useAsync } from '@/hooks/useAsync';
-import {
-  fetchAllBoutiquesAdmin, setBoutiqueStatus, fetchProductCounts,
-  type AdminBoutiqueRow,
-} from '@/data/boutiques';
+import { fetchAllBoutiquesAdmin, fetchProductCounts } from '@/data/boutiques';
 import { BOUTIQUE_STATUS_LABEL, type BoutiqueStatus } from '@/data/types';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { resolvePincode } from '@/data/pincodes';
@@ -16,7 +13,8 @@ import {
 } from '@/lib/boutiqueReview';
 import { SearchInput, T } from '@/components/admin/kit';
 import { useSeededSearch } from '@/hooks/useSeededSearch';
-import { BoutiqueReviewDrawer, Tag } from '@/components/admin/BoutiqueReviewDrawer';
+import { adminPath } from '@/lib/adminPath';
+import { Tag } from '@/components/admin/BoutiqueReviewPanel';
 
 const fmtDate = (iso: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
@@ -28,10 +26,11 @@ const fmtDate = (iso: string | null) =>
  * the full application and one that could not, is the confusion this replaces.
  *
  * Now there is one list with a status filter, and selecting ANY row — pending or
- * live — opens the full application in a drawer (`BoutiqueReviewDrawer`), where
- * the admin reads everything, places a verification call, and records the
- * decision that status allows. The pending tabs still carry the stop-the-
- * approval triage tags inline, so a queue can be worked without opening each row.
+ * live — opens the full shop page (`src/pages/admin/BoutiqueDetail.tsx`): its
+ * whole history and settings across tabs, with the application, verification call
+ * and status decision on the Application tab. The pending tabs still carry the
+ * stop-the-approval triage tags inline, so a queue can be worked without opening
+ * each row.
  */
 
 const GRID = 'display:grid;grid-template-columns:2fr 1.1fr 1.3fr 1fr 1fr;';
@@ -58,11 +57,10 @@ const STATUS_CHIP: Record<BoutiqueStatus, { bg: string; fg: string }> = {
 };
 
 export function Boutiques() {
-  const { showToast } = useShop();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('pending');
   const [q, setQ] = useSeededSearch();
-  const [selected, setSelected] = useState<AdminBoutiqueRow | null>(null);
-  const { data: rows, loading, error, reload } = useAsync(() => fetchAllBoutiquesAdmin(), []);
+  const { data: rows, loading, error } = useAsync(() => fetchAllBoutiquesAdmin(), []);
 
   const all = useMemo(() => rows ?? [], [rows]);
 
@@ -127,16 +125,7 @@ export function Boutiques() {
     return out;
   }, [list, all, areas, counts, triaging]);
 
-  const decide = async (b: AdminBoutiqueRow, status: BoutiqueStatus, note?: string) => {
-    try {
-      await setBoutiqueStatus(b.id, status, note);
-      showToast(`${b.name} — ${BOUTIQUE_STATUS_LABEL[status].toLowerCase()}`);
-      setSelected(null);
-      reload();
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Update failed', 'error');
-    }
-  };
+  const open = (id: string) => navigate(adminPath(`boutiques/${id}`));
 
   return (
     <div style={css('display:flex;flex-direction:column;gap:14px;')}>
@@ -206,7 +195,7 @@ export function Boutiques() {
                   key={b.id}
                   className="agx-adm-row"
                   data-clickable="true"
-                  onClick={() => setSelected(b)}
+                  onClick={() => open(b.id)}
                   style={css(`${GRID}padding:14px 20px;align-items:center;border-top:1px solid var(--ag-border-soft);cursor:pointer;`)}
                 >
                   <div style={css('display:flex;align-items:center;gap:10px;min-width:0;')}>
@@ -217,8 +206,8 @@ export function Boutiques() {
                       <div style={css(`font-weight:700;font-size:13.5px;${CELL}`)}>{b.name}</div>
                       {/* Triage before opening: the tags that would stop an
                           approval, at most three. A row with none is not "clean",
-                          it is "nothing visible from here" — the drawer shows the
-                          full list including what passed. */}
+                          it is "nothing visible from here" — the shop page shows
+                          the full list including what passed. */}
                       {flags.length > 0 ? (
                         <div style={css('display:flex;gap:4px;margin-top:4px;flex-wrap:wrap;')}>
                           {flags.slice(0, 3).map((f) => <Tag key={f.id} flag={f} compact />)}
@@ -243,18 +232,6 @@ export function Boutiques() {
           </div>
         </div>
       </div>
-
-      {selected && (
-        <BoutiqueReviewDrawer
-          key={selected.id}
-          boutique={selected}
-          all={all}
-          seedArea={areas[(selected.pincode ?? '').trim()]}
-          seedCount={counts.has(selected.id) ? counts.get(selected.id)! : null}
-          onClose={() => setSelected(null)}
-          onDecide={decide}
-        />
-      )}
     </div>
   );
 }

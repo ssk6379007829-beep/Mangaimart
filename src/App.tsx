@@ -159,6 +159,7 @@ const Catalogue = lazyNamed(() => import('@/pages/admin/Catalogue'), 'Catalogue'
 // shop-management + approval-queue screen that replaced the old BoutiquesTable
 // and Approvals pages.
 const AdminBoutiques = lazyNamed(() => import('@/pages/admin/Boutiques'), 'Boutiques');
+const AdminBoutiqueDetail = lazyNamed(() => import('@/pages/admin/BoutiqueDetail'), 'BoutiqueDetail');
 const Users = lazyNamed(() => import('@/pages/admin/Users'), 'Users');
 const ProductsAdmin = lazyNamed(() => import('@/pages/admin/ProductsAdmin'), 'ProductsAdmin');
 const OrdersAdmin = lazyNamed(() => import('@/pages/admin/OrdersAdmin'), 'OrdersAdmin');
@@ -444,6 +445,7 @@ export default function App() {
         {/* The catalogue vocabulary sellers pick from and buyers browse by. */}
         <Route path="catalogue" element={<Catalogue />} />
         <Route path="boutiques" element={<AdminBoutiques />} />
+        <Route path="boutiques/:id" element={<AdminBoutiqueDetail />} />
         <Route path="users" element={<Users />} />
         {/* Live presence plus the persisted visit history from 0107. The same
             live panel is embedded at the top of Users; this is where the
