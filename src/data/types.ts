@@ -329,4 +329,7 @@ export interface MessageRow {
   sender_id: string;
   body: string;
   created_at: string;
+  /** Set when an admin hid the message (migration 0125). Only the admin chat
+   *  view receives hidden rows; the buyer/seller fetch filters them out. */
+  hidden_at?: string | null;
 }

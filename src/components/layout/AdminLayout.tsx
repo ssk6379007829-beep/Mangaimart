@@ -60,6 +60,9 @@ const SECTIONS: NavSection[] = [
   ] },
   { heading: 'Growth', items: [
     { label: 'Broadcast', icon: 'send', to: adminPath('broadcast'), title: 'Broadcast', sub: 'Send a notification to buyers or sellers' },
+    // Admin-only: `messages` is deliberately absent from STAFF_ROUTES, so staff
+    // never see the tile and RLS (0125) denies them the read anyway.
+    { label: 'Messages', icon: 'chat', to: adminPath('messages'), title: 'Buyer–Seller Chats', sub: 'Read and moderate in-app conversations' },
     { label: 'WhatsApp', icon: 'forum', to: adminPath('whatsapp'), title: 'WhatsApp Log', sub: 'Every message sent and received on the platform number' },
   ] },
   { heading: 'System', items: [

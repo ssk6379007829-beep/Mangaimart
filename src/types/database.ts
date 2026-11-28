@@ -543,9 +543,9 @@ export interface Database {
         Relationships: [];
       };
       messages: {
-        Row: { id: string; conversation_id: string; sender_id: string; body: string; created_at: string };
+        Row: { id: string; conversation_id: string; sender_id: string; body: string; created_at: string; hidden_at: string | null; hidden_by: string | null };
         Insert: { conversation_id: string; sender_id: string; body: string };
-        Update: Partial<{ body: string }>;
+        Update: Partial<{ body: string; hidden_at: string | null; hidden_by: string | null }>;
         Relationships: [];
       };
       notifications: {
@@ -1457,6 +1457,11 @@ export interface Database {
       staff_customer_orders: {
         /** One registered buyer's order history; `is_staff()`-guarded (0124). */
         Args: { p_buyer: string };
+        Returns: unknown;
+      };
+      admin_set_message_hidden: {
+        /** Hide/restore a chat message; `is_admin()`-guarded (0125). */
+        Args: { p_message: string; p_hidden: boolean };
         Returns: unknown;
       };
       staff_set_order_status: {

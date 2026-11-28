@@ -212,7 +212,15 @@ export async function fetchConversationBuyerId(conversationId: string): Promise<
 }
 
 export async function fetchMessages(conversationId: string): Promise<MessageRow[]> {
-  const { data, error } = await supabase.from('messages').select('*').eq('conversation_id', conversationId).order('created_at', { ascending: true });
+  // Admin-moderated messages (migration 0125) drop out of the buyer/seller
+  // thread. Degrade gracefully where 0125 has not been applied yet: an
+  // undefined-column error (42703) means the chat predates the `hidden_at`
+  // column, so retry without the filter rather than breaking the live chat.
+  const base = () => supabase.from('messages').select('*').eq('conversation_id', conversationId).order('created_at', { ascending: true });
+  let { data, error } = await base().is('hidden_at', null);
+  if (error && error.code === '42703') {
+    ({ data, error } = await base());
+  }
   if (error) throw error;
   return (data ?? []) as MessageRow[];
 }

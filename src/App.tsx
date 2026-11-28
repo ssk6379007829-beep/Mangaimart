@@ -176,6 +176,7 @@ const Broadcast = lazyNamed(() => import('@/pages/admin/Broadcast'), 'Broadcast'
 const Audit = lazyNamed(() => import('@/pages/admin/Audit'), 'Audit');
 const Expenses = lazyNamed(() => import('@/pages/admin/Expenses'), 'Expenses');
 const WhatsAppLog = lazyNamed(() => import('@/pages/admin/WhatsAppLog'), 'WhatsAppLog');
+const AdminMessages = lazyNamed(() => import('@/pages/admin/AdminMessages'), 'AdminMessages');
 const Deliveries = lazyNamed(() => import('@/pages/admin/Deliveries'), 'Deliveries');
 const AdminSearch = lazyNamed(() => import('@/pages/admin/AdminSearch'), 'AdminSearch');
 const Feedback = lazyNamed(() => import('@/pages/admin/Feedback'), 'Feedback');
@@ -477,6 +478,7 @@ export default function App() {
         {/* The outgoing side of the ledger — spends with their receipts (0056). */}
         <Route path="expenses" element={<Expenses />} />
         <Route path="whatsapp" element={<WhatsAppLog />} />
+        <Route path="messages" element={<AdminMessages />} />
         <Route path="ads" element={<Ads />} />
         <Route path="coupons" element={<AdminCoupons />} />
         <Route path="notifications" element={<AdminNotifications />} />

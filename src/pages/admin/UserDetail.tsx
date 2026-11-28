@@ -17,6 +17,7 @@ import {
   Avatar, Card, ConfirmDialog, EmptyState, Field, GhostButton, Icon, StatCard, StatusPill, STICKY_HEADER, T,
 } from '@/components/admin/kit';
 import { adminPath } from '@/lib/adminPath';
+import { AdminChats } from '@/components/admin/AdminChats';
 import type { Role } from '@/types/database';
 
 /**
@@ -204,6 +205,12 @@ export function UserDetail() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Their chats with shops */}
+      <div>
+        <div style={css('font-weight:800;font-size:15px;margin-bottom:10px;')}>Conversations</div>
+        <AdminChats filter={{ buyerId: u.id }} />
       </div>
 
       {/* Dialogs — same copy and guards as the directory */}

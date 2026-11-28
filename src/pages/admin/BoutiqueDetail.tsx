@@ -21,6 +21,7 @@ import { BOUTIQUE_STATUS_LABEL, type BoutiqueStatus } from '@/data/types';
 import { Avatar, Card, ConfirmDialog, EmptyState, Field, GhostButton, Icon, IconButton, StatCard, StatusPill, STICKY_HEADER, T, Toggle } from '@/components/admin/kit';
 import { adminPath } from '@/lib/adminPath';
 import { BoutiqueReviewPanel } from '@/components/admin/BoutiqueReviewPanel';
+import { AdminChats } from '@/components/admin/AdminChats';
 
 /**
  * The whole shop in one place — its history, its numbers and the controls to
@@ -41,7 +42,7 @@ const STATUS_CHIP: Record<BoutiqueStatus, { bg: string; fg: string }> = {
   rejected: { bg: 'var(--ag-bad-bg)', fg: 'var(--ag-bad-text)' },
 };
 
-type TabKey = 'overview' | 'products' | 'orders' | 'customers' | 'payouts' | 'reviews' | 'delivery' | 'activity' | 'application';
+type TabKey = 'overview' | 'products' | 'orders' | 'customers' | 'payouts' | 'reviews' | 'messages' | 'delivery' | 'activity' | 'application';
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
@@ -72,7 +73,7 @@ export function BoutiqueDetail() {
       { key: 'payouts' as const, label: 'Payouts' },
     ] : []),
     { key: 'reviews' as const, label: 'Reviews & Returns' },
-    ...(canMoney ? [{ key: 'delivery' as const, label: 'Delivery' }, { key: 'activity' as const, label: 'Activity' }] : []),
+    ...(canMoney ? [{ key: 'messages' as const, label: 'Messages' }, { key: 'delivery' as const, label: 'Delivery' }, { key: 'activity' as const, label: 'Activity' }] : []),
     { key: 'application' as const, label: 'Application' },
   ]), [canMoney]);
 
@@ -217,6 +218,8 @@ export function BoutiqueDetail() {
       {tab === 'customers' && canMoney && <CustomersTab boutiqueId={boutique.id} />}
 
       {tab === 'payouts' && canMoney && <PayoutsTab boutiqueId={boutique.id} />}
+
+      {tab === 'messages' && canMoney && <AdminChats filter={{ boutiqueId: boutique.id }} />}
 
       {tab === 'reviews' && <ReviewsReturnsTab boutiqueId={boutique.id} canReturns={canMoney} />}
 
