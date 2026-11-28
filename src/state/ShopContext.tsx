@@ -9,7 +9,7 @@ import { loadSettings } from '@/data/settings';
 import { fetchActiveCoupons, type CouponRow } from '@/data/coupons';
 import { useCatalog } from '@/state/CatalogContext';
 import { useAuth } from '@/auth/AuthContext';
-import { EMPTY_GUEST, readGuest, writeGuest, hasContactDetails } from '@/lib/buyerDetails';
+import { EMPTY_GUEST, readGuest, writeGuest, hasContactDetails, readGuestOwner, writeGuestOwner, markGuestEntered, guestEnteredThisSession, clearGuestEntered } from '@/lib/buyerDetails';
 import { syncAccount } from '@/lib/accountSync';
 import { updateMyProfile, type ProfilePatch } from '@/data/profiles';
 import { addOrders, type PlacedOrder, type PlacedOrderItem } from '@/lib/orderHistory';
@@ -769,18 +769,29 @@ export function ShopProvider({ children }: { children: ReactNode }) {
   );
 
   const setGuest = useCallback(
-    (patch: Partial<Guest>) =>
+    (patch: Partial<Guest>) => {
+      // A call through the public setter is the person typing in a form, so these
+      // details are "entered this session" and may migrate up on sign-in. The
+      // sign-in sync writes state directly (below), NOT through here, so restoring
+      // the account's own details never counts as the guest typing them.
+      markGuestEntered();
       setGuestState((g) => {
         const next = { ...g, ...patch };
         writeGuest(next);
         return next;
-      }),
+      });
+    },
     [],
   );
 
   const clearGuest = useCallback(() => {
     setGuestState(EMPTY_GUEST);
     writeGuest(EMPTY_GUEST);
+    // Drop the ownership stamp and the typed-this-session flag too, so the next
+    // person on a shared device starts as a true anonymous guest rather than
+    // inheriting the last account's claim or its "entered" state.
+    writeGuestOwner(null);
+    clearGuestEntered();
   }, []);
 
   const hasBuyerDetails = useMemo(() => hasContactDetails(guest), [guest]);
@@ -806,17 +817,40 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     if (!uid || session?.user?.is_anonymous) return;
     if (profileSyncedRef.current === uid) return;
     profileSyncedRef.current = uid;
+
+    // Local details may only migrate into this account when we can trust they
+    // belong to the person signing in: either they are already stamped with this
+    // account (a returning buyer, or their own in-progress checkout surviving a
+    // reload), or they were typed on the keyboard THIS session (the guest who
+    // fills checkout and then signs in to pay). Details merely restored from a
+    // previous session's storage — which may be a DIFFERENT person on a shared
+    // device — are dropped: `syncAccount` writes what it is handed onto the
+    // profile, so trusting them would save one buyer's name, phone and address
+    // onto another's account. See @/lib/buyerDetails.
+    const owner = readGuestOwner();
+    const trusted = owner === uid || guestEnteredThisSession();
+    if (!trusted) {
+      setGuestState(EMPTY_GUEST);
+      writeGuest(EMPTY_GUEST);
+    }
+    // Whatever stands on the device now belongs to the account signing in.
+    writeGuestOwner(uid);
+    const localForSync = trusted ? guest : EMPTY_GUEST;
+
     let active = true;
-    void syncAccount(guest)
+    // `syncAccount` already merges the local copy into what it returns (account
+    // value wins, local fills a blank), so the result is authoritative — the old
+    // `prof.x || guest.x` re-merge here is what reintroduced the dropped data.
+    // Written straight to state, NOT through `setGuest`, so restoring the
+    // account's own details is not counted as the guest typing them.
+    void syncAccount(localForSync)
       .then((prof) => {
         if (!active) return;
-        setGuest({
-          name: prof.name || guest.name,
-          phone: prof.phone || guest.phone,
-          city: prof.city || guest.city,
-          address: prof.address || guest.address,
-          pincode: prof.pincode || guest.pincode,
-        });
+        setGuestState(prof);
+        writeGuest(prof);
+        // These fields are now the account's, not something the guest typed —
+        // so a later account switch in this same page load won't migrate them.
+        clearGuestEntered();
       })
       .catch(() => { /* offline / RLS lag — keep whatever is already filled in */ });
     return () => { active = false; };

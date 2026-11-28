@@ -7,6 +7,7 @@ import { useShop } from '@/state/ShopContext';
 import { TONES, fmt } from '@/data/demo';
 import { useAsync } from '@/hooks/useAsync';
 import { fetchOrder, updateOrderStatus, cancelOrder, resolveCancellation } from '@/data/orders';
+import { PAYOUT_RATE } from '@/data/payouts';
 import type { OrderStatus } from '@/data/types';
 import { toOrderView } from '@/lib/orderView';
 import { useMyBoutique } from '@/hooks/useMyBoutique';
@@ -57,7 +58,14 @@ export function OrderDetail() {
   const { showToast } = useShop();
 
   const { boutique } = useMyBoutique();
-  const { commission_pct: commissionPct, payout_sla_hours: slaHours } = useSettings();
+  const { payout_sla_hours: slaHours } = useSettings();
+  // The per-order "You receive" figure must equal what settlement ACTUALLY pays,
+  // which is a flat 10% (`PAYOUT_RATE`, mirrored by `settle_boutique_payout` in
+  // migration 0078a) — NOT the admin-editable `commission_pct`. Reading the live
+  // setting here showed the seller a payout that would diverge from the money they
+  // actually receive the moment commission was edited, since neither the payout
+  // nor the statement honour that setting. See src/data/payouts.ts.
+  const commissionPct = PAYOUT_RATE * 100;
   const orderId = decodeURIComponent(id ?? '');
   const { data: row, loading, error, reload } = useAsync(() => (orderId ? fetchOrder(orderId) : Promise.resolve(null)), [orderId]);
   const [confirmReject, setConfirmReject] = useState(false);
@@ -765,7 +773,7 @@ export function OrderDetail() {
         <div style={css('background:var(--ag-surface);border-radius:16px;padding:14px;box-shadow:0 10px 26px -22px rgba(107,20,54,.6);')}>
           <div style={css('font-size:12px;font-weight:800;color:var(--ag-muted);letter-spacing:.05em;')}>CUSTOMER</div>
           <div style={css('display:flex;align-items:center;gap:11px;margin-top:8px;')}>
-            <div style={css("width:44px;height:44px;border-radius:13px;background:var(--ag-surface-2);display:flex;align-items:center;justify-content:center;font-weight:700;color:rgba(42,26,32,.5);")}>{o.customer[0]}</div>
+            <div style={css("width:44px;height:44px;border-radius:13px;background:var(--ag-surface-2);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--ag-muted);")}>{o.customer[0]}</div>
             <div style={css('flex:1;')}>
               <div style={css('font-weight:800;font-size:14px;')}>{o.customer}</div>
               <div style={css('font-size:12px;color:var(--ag-muted);display:flex;align-items:center;gap:5px;flex-wrap:wrap;')}>
@@ -828,7 +836,16 @@ export function OrderDetail() {
                 />
                 <div style={css('flex:1;min-width:0;')}>
                   <div style={css('font-weight:700;font-size:13.5px;')}>{it.title}</div>
-                  <div style={css('font-size:12px;color:var(--ag-muted);')}>Size {it.size ?? 'Free'} · {it.color ?? '—'} · Qty {it.qty}</div>
+                  {/* Size / colour / qty are what the seller reads to pack the
+                      right item — so the VALUES are bold and ink-dark (the
+                      "Size"/"Qty" labels stay muted), not one flat grey line. */}
+                  <div style={css('font-size:12.5px;color:var(--ag-muted);margin-top:3px;display:flex;flex-wrap:wrap;align-items:center;gap:3px 7px;')}>
+                    <span>Size <strong style={css('font-weight:800;color:var(--ag-ink);')}>{it.size ?? 'Free'}</strong></span>
+                    <span aria-hidden="true" style={css('color:var(--ag-muted-soft);')}>·</span>
+                    <span>Colour <strong style={css('font-weight:800;color:var(--ag-ink);')}>{it.color ?? '—'}</strong></span>
+                    <span aria-hidden="true" style={css('color:var(--ag-muted-soft);')}>·</span>
+                    <span>Qty <strong style={css('font-weight:800;color:var(--ag-ink);')}>{it.qty}</strong></span>
+                  </div>
                 </div>
                 <div style={css('display:flex;align-items:center;gap:2px;')}>
                   <span style={css('font-weight:800;color:var(--ag-crimson);')}>{fmt(Number(it.price) * it.qty)}</span>

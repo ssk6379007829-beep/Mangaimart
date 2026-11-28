@@ -200,10 +200,11 @@ export function MyOrders() {
                     {badge}
                   </span>
                 </div>
-                <div
-                  onClick={item?.pid ? (e) => { e.stopPropagation(); navigate(`/products/${item.pid}`); } : undefined}
-                  style={css(`display:flex;gap:14px;margin-top:12px;${item?.pid ? 'cursor:pointer;' : ''}`)}
-                >
+                {/* The whole card opens the order (tracking / details) — the
+                    image included. It used to deep-link to the product, which
+                    meant tapping almost anywhere on the card left the order and
+                    opened the product page instead. */}
+                <div style={css('display:flex;gap:14px;margin-top:12px;')}>
                   <div className="agx-thumb-media" style={css(`width:72px;background:${TONES[item?.tone ?? 0]};`)}>
                     <ImageSlot src={item ? productById(item.pid)?.image : undefined} placeholder={item?.title} className="agx-prod-fill" sizes="72px" />
                   </div>

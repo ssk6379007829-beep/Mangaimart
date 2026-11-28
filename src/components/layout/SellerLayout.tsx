@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { AppShell, type TabDef } from './AppShell';
 import { NotificationBellMenu, useUnreadMessageCount } from '@/components/notifications/NotificationBellMenu';
 import { ProfileMenu } from '@/components/seller/ProfileMenu';
+import { SellerFeedbackPrompt } from '@/components/seller/SellerFeedbackPrompt';
 import { GlobalSearchBox } from '@/components/search/GlobalSearchBox';
 import { SELLER_SOURCES } from '@/lib/search/sellerSources';
 import { css } from '@/lib/css';
@@ -133,13 +134,18 @@ function VerificationBanner() {
 export function SellerLayout() {
   const unreadMessages = useUnreadMessageCount();
   return (
-    <AppShell
-      tabs={sellerTabs(unreadMessages)}
-      profileTo="/seller/profile"
-      homeTo="/seller/dashboard"
-      banner={<VerificationBanner />}
-      headerAction={<SellerHeaderActions />}
-      renderProfileMenu={(close) => <ProfileMenu close={close} />}
-    />
+    <>
+      <AppShell
+        tabs={sellerTabs(unreadMessages)}
+        profileTo="/seller/profile"
+        homeTo="/seller/dashboard"
+        banner={<VerificationBanner />}
+        headerAction={<SellerHeaderActions />}
+        renderProfileMenu={(close) => <ProfileMenu close={close} />}
+      />
+      {/* Asks how MangaiMart is working for the seller, once they've had a
+          delivery or a payout. Self-silencing — see useSellerFeedbackPrompt. */}
+      <SellerFeedbackPrompt />
+    </>
   );
 }

@@ -103,7 +103,11 @@ export function validateProductForm(
     next.color = 'Pick a colour from the list so buyers can filter by it';
   }
   if (!form.occasion.trim()) next.occasion = 'Required';
-  if (!form.price.trim() || Number(form.price) <= 0) next.price = 'Enter a valid price';
+  // `Number('4,899')` and `Number('abc')` are NaN, and `NaN <= 0` is false — so
+  // without the finite check a price typed with a comma or stray character slips
+  // through here and is saved as ₹0 (a free product). The weight check below
+  // already guards this way; price/stock/MRP must too.
+  if (!form.price.trim() || !Number.isFinite(Number(form.price)) || Number(form.price) <= 0) next.price = 'Enter a valid price';
   // Stock is asked for in one of two shapes and only ever one of them: a
   // pooled number when the piece has no sizes, otherwise a count per size.
   // A blank box is the one thing not accepted — 0 is a fine answer, and says
@@ -113,11 +117,11 @@ export function validateProductForm(
     if (missing.length) {
       next.sizeStock = `How many do you have in ${sortSizes(missing).join(', ')}? Enter 0 if that size is sold out.`;
     }
-  } else if (form.stock.trim() === '' || Number(form.stock) < 0) {
+  } else if (form.stock.trim() === '' || !Number.isFinite(Number(form.stock)) || Number(form.stock) < 0) {
     next.stock = 'Enter valid stock';
   }
   if (!form.imageUrl) next.imageUrl = 'Add a cover photo';
-  if (form.mrp.trim() && Number(form.mrp) < Number(form.price || 0)) next.mrp = 'MRP must be ≥ price';
+  if (form.mrp.trim() && (!Number.isFinite(Number(form.mrp)) || Number(form.mrp) < Number(form.price || 0))) next.mrp = 'MRP must be ≥ price';
   // Optional — a blank falls back to the shop default so no existing product
   // is blocked — but a nonsense value must not reach a courier booking, where
   // an under-declared weight becomes a discrepancy charge weeks later.
@@ -550,7 +554,7 @@ export function ProductForm({
 
       <div style={css('display:flex;gap:12px;')}>
         <label style={css(`flex:1;${labelStyle}`)}>
-          Price (₹) *<input value={form.price} onChange={(e) => set('price', e.target.value)} inputMode="numeric" placeholder="4899" style={css(errors.price ? inputErrStyle : inputStyle)} />
+          Price (₹) *<input value={form.price} onChange={(e) => set('price', e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" placeholder="4899" style={css(errors.price ? inputErrStyle : inputStyle)} />
           {errors.price && <span style={css(errStyle)}>{errors.price}</span>}
         </label>
         {/* Two shapes, one slot. The box turns into a running total the moment
@@ -566,7 +570,7 @@ export function ProductForm({
           </div>
         ) : (
           <label style={css(`flex:1;${labelStyle}`)}>
-            Stock *<input value={form.stock} onChange={(e) => set('stock', e.target.value)} inputMode="numeric" placeholder="12" style={css(errors.stock ? inputErrStyle : inputStyle)} />
+            Stock *<input value={form.stock} onChange={(e) => set('stock', e.target.value.replace(/\D/g, ''))} inputMode="numeric" placeholder="12" style={css(errors.stock ? inputErrStyle : inputStyle)} />
             {errors.stock && <span style={css(errStyle)}>{errors.stock}</span>}
           </label>
         )}
@@ -574,7 +578,7 @@ export function ProductForm({
 
       <label style={css(labelStyle)}>
         MRP (₹) — optional, shows a discount badge to buyers
-        <input value={form.mrp} onChange={(e) => set('mrp', e.target.value)} inputMode="numeric" placeholder="5999" style={css(errors.mrp ? inputErrStyle : inputStyle)} />
+        <input value={form.mrp} onChange={(e) => set('mrp', e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" placeholder="5999" style={css(errors.mrp ? inputErrStyle : inputStyle)} />
         {errors.mrp && <span style={css(errStyle)}>{errors.mrp}</span>}
         {discountPct != null && <span style={css('display:block;margin-top:4px;font-size:12px;font-weight:700;color:var(--ag-good);')}>{discountPct}% off badge will show to buyers</span>}
       </label>

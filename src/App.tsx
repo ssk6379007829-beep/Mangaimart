@@ -180,6 +180,7 @@ const AdminMessages = lazyNamed(() => import('@/pages/admin/AdminMessages'), 'Ad
 const Deliveries = lazyNamed(() => import('@/pages/admin/Deliveries'), 'Deliveries');
 const AdminSearch = lazyNamed(() => import('@/pages/admin/AdminSearch'), 'AdminSearch');
 const Feedback = lazyNamed(() => import('@/pages/admin/Feedback'), 'Feedback');
+const SellerFeedback = lazyNamed(() => import('@/pages/admin/SellerFeedback'), 'SellerFeedback');
 const AdminSettings = lazyNamed(() => import('@/pages/admin/Settings'), 'Settings');
 const AdminProfile = lazyNamed(() => import('@/pages/admin/Profile'), 'Profile');
 const StaffHome = lazyNamed(() => import('@/pages/admin/StaffHome'), 'StaffHome');
@@ -466,6 +467,9 @@ export default function App() {
         {/* Private post-delivery feedback about the platform itself (0071).
             Public product reviews are moderated at /admin/reviews. */}
         <Route path="feedback" element={<Feedback />} />
+        {/* The seller-side mirror (0128): what boutique owners say about the
+            platform. Private, admin-only, never published. */}
+        <Route path="seller-feedback" element={<SellerFeedback />} />
         {/* Folded into Overview and Users as tabs to shorten a 20-item sidebar.
             Kept as redirects rather than deleted: both were linked from the nav
             for months, so bookmarks and old notification links exist. */}

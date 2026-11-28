@@ -22,7 +22,7 @@ import { useShop } from '@/state/ShopContext';
  */
 export function AuthCallback() {
   const navigate = useNavigate();
-  const { session, profile, loading, claimRole } = useAuth();
+  const { session, loading, claimRole } = useAuth();
   const { showToast } = useShop();
   const ran = useRef(false);
 
@@ -58,16 +58,17 @@ export function AuthCallback() {
       // seller (seeded from the signup metadata), so claimRole is skipped there.
       if (pendingOAuthRole === 'seller') await claimRole('seller');
 
-      // Treat the account as a seller when EITHER signal says so: the Google
-      // intent flag, the loaded profile role, or the signup metadata that the
-      // email-confirmation link carries in place of any localStorage flag. This
-      // is what sends an email-confirmed seller into onboarding instead of the
-      // buyer storefront.
+      // Route by the PAGE the user signed in on, not the account's existing role:
+      // the stashed OAuth role is which login page they chose, so a seller who
+      // uses Google on the buyer page lands in the buyer app (reaching their
+      // console only via the seller login). An email-confirmation link carries no
+      // such flag, so it falls back to the signup intent in the account metadata —
+      // what they signed up as — which is what still sends an email-confirmed
+      // seller into onboarding rather than the storefront.
       const metaRole = (session.user.user_metadata as { role?: Role } | undefined)?.role;
-      const isSeller =
-        pendingOAuthRole === 'seller' || profile?.role === 'seller' || metaRole === 'seller';
+      const wantsSeller = pendingOAuthRole ? pendingOAuthRole === 'seller' : metaRole === 'seller';
 
-      if (isSeller) {
+      if (wantsSeller) {
         // A boutique row can exist while the 7-step setup is still unfinished,
         // so completion — not mere existence — decides where they land.
         const boutique = await fetchMyBoutique(session.user.id).catch(() => null);
@@ -77,7 +78,7 @@ export function AuthCallback() {
         navigate(next ?? '/profile', { replace: true });
       }
     })();
-  }, [session, profile, loading, claimRole, navigate, showToast]);
+  }, [session, loading, claimRole, navigate, showToast]);
 
   return <FullscreenLoader />;
 }

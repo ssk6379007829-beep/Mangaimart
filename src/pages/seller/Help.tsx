@@ -3,6 +3,7 @@ import { css } from '@/lib/css';
 import { useGoBack } from '@/hooks/useGoBack';
 import { COMPANY, CONTACT_LINKS } from '@/data/company';
 import { useSettings } from '@/data/settings';
+import { SellerFeedbackSheet } from '@/components/seller/SellerFeedbackSheet';
 
 /**
  * Seller help & support.
@@ -56,6 +57,7 @@ const buildFaqs = (commissionPct: number, slaHours: number): { q: string; a: str
 export function Help() {
   const goBack = useGoBack('/seller/profile');
   const [open, setOpen] = useState<number | null>(0);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const { commission_pct: commissionPct, payout_sla_hours: slaHours } = useSettings();
   const FAQS = buildFaqs(commissionPct, slaHours);
 
@@ -116,7 +118,28 @@ export function Help() {
             </a>
           ))}
         </div>
+
+        {/* Share feedback about the platform itself — private, straight to the
+            team. The same sheet the occasional pop-up uses. */}
+        <div className="agx-eyebrow" style={css('font-size:11px;color:var(--ag-crimson);margin:22px 24px 8px;')}>Help us improve</div>
+        <div style={css('margin:0 20px;')}>
+          <button
+            onClick={() => setFeedbackOpen(true)}
+            style={css('width:100%;display:flex;align-items:center;gap:13px;padding:14px;border:none;background:var(--ag-surface);border-radius:18px;box-shadow:0 12px 30px -20px rgba(107,20,54,.6);cursor:pointer;text-align:left;font-family:inherit;')}
+          >
+            <span style={css('width:40px;height:40px;flex:none;border-radius:12px;background:var(--ag-surface-2);display:flex;align-items:center;justify-content:center;')}>
+              <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';color:var(--ag-crimson);font-size:21px;")}>rate_review</span>
+            </span>
+            <span style={css('flex:1;min-width:0;')}>
+              <span style={css('display:block;font-weight:800;font-size:14.5px;')}>Share your feedback</span>
+              <span style={css('display:block;font-size:12px;color:var(--ag-muted);font-weight:600;margin-top:1px;')}>Tell us how MangaiMart is working for you — private</span>
+            </span>
+            <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';color:var(--ag-muted-soft);")}>chevron_right</span>
+          </button>
+        </div>
       </div>
+
+      {feedbackOpen && <SellerFeedbackSheet onClose={() => setFeedbackOpen(false)} />}
     </div>
   );
 }

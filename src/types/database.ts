@@ -785,6 +785,25 @@ export interface Database {
         Update: Partial<Database['public']['Tables']['platform_feedback']['Row']>;
         Relationships: [];
       };
+      // What a seller says about the platform (0128). The seller-side mirror of
+      // platform_feedback — private, admin-only, never published, keyed to a
+      // boutique rather than a buyer/order.
+      seller_feedback: {
+        Row: {
+          id: string;
+          boutique_id: string;
+          /** The submitting owner, snapshotted. Null once a profile is deleted. */
+          seller_id: string | null;
+          rating: number;
+          /** Triage bucket — see SELLER_FEEDBACK_CATEGORIES in src/data/sellerFeedback.ts. */
+          category: string;
+          body: string;
+          created_at: string;
+        };
+        Insert: Partial<Database['public']['Tables']['seller_feedback']['Row']> & { boutique_id: string; seller_id: string; rating: number };
+        Update: Partial<Database['public']['Tables']['seller_feedback']['Row']>;
+        Relationships: [];
+      };
       expenses: {
         Row: {
           id: string;

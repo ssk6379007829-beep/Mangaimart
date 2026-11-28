@@ -46,6 +46,7 @@ const SECTIONS: NavSection[] = [
     { label: 'Deliveries', icon: 'local_shipping', to: adminPath('deliveries'), title: 'Deliveries', sub: 'Delivery disputes, stalled parcels and the courier list' },
     { label: 'Refunds', icon: 'currency_exchange', to: adminPath('refunds'), title: 'Refunds', sub: 'Record and track order refunds' },
     { label: 'Feedback', icon: 'rate_review', to: adminPath('feedback'), title: 'Buyer Feedback', sub: 'What buyers say about MangaiMart — private, never published' },
+    { label: 'Seller Feedback', icon: 'storefront', to: adminPath('seller-feedback'), title: 'Seller Feedback', sub: 'What sellers say about MangaiMart — private, never published' },
   ] },
   { heading: 'Finance', items: [
     { label: 'Payouts', icon: 'account_balance', to: adminPath('payments'), title: 'Seller Payouts', sub: 'Settlements after commission and deductions' },

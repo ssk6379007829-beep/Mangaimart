@@ -9,6 +9,7 @@ import { ProfileEditSheet } from '@/components/buyer/ProfileEditSheet';
 import { AccountSheet } from '@/components/buyer/AccountSheet';
 import { readOrders } from '@/lib/orderHistory';
 import { syncAccount } from '@/lib/accountSync';
+import { EMPTY_GUEST, readGuestOwner, writeGuestOwner, guestEnteredThisSession, clearGuestEntered } from '@/lib/buyerDetails';
 import { APP_VERSION, COMPANY } from '@/data/company';
 
 /** "selva.kumar" / "selva_kumar" -> "Selva Kumar" for an email-derived name. */
@@ -40,17 +41,29 @@ export function Profile() {
   const doSync = async (patch?: { name: string; phone: string; city: string; address: string; pincode: string }, msg = 'Synced across devices') => {
     setSyncing(true);
     try {
-      // Pass the current local details so anything entered as a guest migrates
-      // up to the account rather than being lost on logout. Never let a synced
-      // value blank out something we already have locally.
-      const prof = await syncAccount(guest, patch);
-      setGuest({
-        name: prof.name || guest.name,
-        phone: prof.phone || guest.phone,
-        city: prof.city || guest.city,
-        address: prof.address || guest.address,
-        pincode: prof.pincode || guest.pincode,
-      });
+      if (patch) {
+        // An explicit save — the buyer's own deliberate input — always applies.
+        const prof = await syncAccount(guest, patch);
+        setGuest({
+          name: prof.name || guest.name,
+          phone: prof.phone || guest.phone,
+          city: prof.city || guest.city,
+          address: prof.address || guest.address,
+          pincode: prof.pincode || guest.pincode,
+        });
+      } else {
+        // A silent/pull sync. Mirror ShopContext's sign-in guard: local details
+        // only migrate up when they belong to this account or were typed this
+        // session — never a different person's leftover from a shared device,
+        // which `syncAccount` would otherwise write straight onto this profile.
+        const uid = session?.user?.id;
+        const trusted = (!!uid && readGuestOwner() === uid) || guestEnteredThisSession();
+        if (uid && !trusted) clearGuest();
+        if (uid) writeGuestOwner(uid);
+        const prof = await syncAccount(trusted ? guest : EMPTY_GUEST);
+        setGuest(prof);
+        clearGuestEntered(); // the values are now the account's, not freshly typed
+      }
       setOrderCount(readOrders().length);
       if (msg) showToast(msg);
     } catch (e) {

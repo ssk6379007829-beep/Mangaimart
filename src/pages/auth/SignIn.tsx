@@ -64,13 +64,30 @@ export function SignIn() {
 
     setSending(true);
     try {
-      // Sign in as the role this page is for, so a boutique owner reliably
-      // lands on the seller console instead of the buyer app. `role` only seeds
-      // a brand-new profile — an existing account keeps its own role.
+      // `role` only seeds a brand-new profile — an existing account keeps its own
+      // role, which is returned here.
       const profileRole = await signInWithPassword(trimmedEmail, password, role);
-      // Back to whatever the gate interrupted (the bag → checkout run), or the
-      // account's own home when they simply came to sign in.
-      navigate(next ?? homeFor(profileRole), { replace: true });
+      // Route by the PAGE the person signed in on, not the account's role: a
+      // seller who uses the buyer login lands in the buyer app (they reach their
+      // console via the seller login), and the seller login never drops anyone on
+      // the storefront. A gate destination (?next=, e.g. the bag → checkout run)
+      // still wins when present.
+      if (next) {
+        navigate(next, { replace: true });
+      } else if (role === 'buyer') {
+        navigate('/', { replace: true });
+      } else if (profileRole === 'seller') {
+        navigate(homeFor('seller'), { replace: true });
+      } else if (profileRole === 'admin' || profileRole === 'staff') {
+        // A console user who happened to use the seller login still belongs in
+        // their own console, not a seller dashboard they can't open.
+        navigate(homeFor(profileRole), { replace: true });
+      } else {
+        // A buyer account signed in on the seller login page — no boutique yet.
+        // Offer to set one up rather than bouncing them to the storefront.
+        showToast('No boutique on this account yet — let’s set one up.', 'info');
+        navigate('/seller/register', { replace: true });
+      }
     } catch (e) {
       showToast(e instanceof Error ? friendlyAuthError(e.message) : 'Sign in failed', 'error');
     } finally {
