@@ -336,7 +336,10 @@ export function BoutiqueProfile() {
             {[
               { value: followerLabel, label: 'Followers' },
               { value: `${ab.products}+`, label: 'Products' },
-              { value: `${ab.positiveRating}%`, label: 'Positive Rating' },
+              // A boutique with too few reviews to publish a rating (same gate as
+              // the star display above) showed "0% Positive Rating" — which reads
+              // as *bad*, not *unrated*. Show "New" until there is a real figure.
+              { value: showsRating(ab.rating, ab.reviews) ? `${ab.positiveRating}%` : 'New', label: 'Positive Rating' },
             ].map((s, i) => (
               <div key={s.label} style={css(`flex:1;text-align:center;${i > 0 ? 'border-left:1px solid var(--ag-border-soft);' : ''}`)}>
                 <div style={css("font-family:var(--ag-display);font-weight:700;font-size:clamp(20px,2.6vw,26px);color:var(--ag-ink);line-height:1;")}>{s.value}</div>

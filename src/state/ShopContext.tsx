@@ -216,7 +216,7 @@ type ShopValue = {
 const ShopContext = createContext<ShopValue | null>(null);
 
 export function ShopProvider({ children }: { children: ReactNode }) {
-  const { productById, boutiques } = useCatalog();
+  const { productById, boutiques, loading: catalogLoading } = useCatalog();
   const { session } = useAuth();
   const signedIn = !!session;
 
@@ -547,9 +547,22 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     return () => { active = false; };
   }, []);
 
+  // Only count lines whose product the catalogue can still resolve. A product
+  // that was deleted or unpublished after it was added lingers in the saved cart
+  // (localStorage), but the cart page and `subtotal` both skip it (`productById`
+  // returns undefined) — so counting it here left the bag badge, the Profile
+  // "Bag" tile and the floating bar all saying "2 items" over a one-line bag the
+  // buyer couldn't reconcile or clear. While the catalogue is still loading
+  // nothing resolves yet, so the raw count stands in rather than flashing empty
+  // for a real bag; once loaded, an unresolvable id is a removed product and
+  // drops out of the count exactly as it already drops out of the cart.
   const cartCount = useMemo(
-    () => Object.values(cart).reduce((a, l) => a + l.qty, 0),
-    [cart],
+    () =>
+      Object.entries(cart).reduce(
+        (a, [id, l]) => (catalogLoading || productById(id) ? a + l.qty : a),
+        0,
+      ),
+    [cart, productById, catalogLoading],
   );
 
   const subtotal = useMemo(
@@ -670,7 +683,16 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     useState<DeliveryQuotes>({ quotes: {}, degraded: new Set(), unserviceable: new Set() });
 
   useEffect(() => {
-    const lines = Object.entries(cart).map(([product_id, line]) => ({ product_id, qty: line.qty }));
+    // Only quote products the catalogue can still resolve. A cart holding only a
+    // since-removed product (see `cartCount`) otherwise sent its orphan id to the
+    // Edge Function, which looks up live products exactly as place-order does,
+    // found none, and answered 400 "None of the items are available" — a console
+    // error on every load with a stored pincode, for a bag that prices fine at
+    // the flat rate anyway. Dropping unresolvable lines mirrors the server and
+    // skips the call entirely when nothing is left to quote.
+    const lines = Object.entries(cart)
+      .filter(([product_id]) => productById(product_id))
+      .map(([product_id, line]) => ({ product_id, qty: line.qty }));
     if (!/^[1-9]\d{5}$/.test(effectivePincode ?? '') || lines.length === 0) {
       setDeliveryQuotes({ quotes: {}, degraded: new Set(), unserviceable: new Set() });
       return;
@@ -682,7 +704,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         .catch(() => { /* network blip — the flat zone rate still prices the bag */ });
     }, 400);
     return () => { active = false; clearTimeout(t); };
-  }, [cart, effectivePincode]);
+  }, [cart, effectivePincode, productById]);
 
   // The live, signed delivery charge per boutique in the bag, in rupees — what
   // pricing overrides the flat zone rate with. Keyed only to boutiques actually in

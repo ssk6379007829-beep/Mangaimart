@@ -14,8 +14,12 @@ import { InstagramIcon, FacebookIcon, YouTubeIcon, WhatsAppIcon } from '@/compon
  */
 
 const SHOP_LINKS: { label: string; to: string; sort?: string }[] = [
-  { label: 'New arrivals', to: '/shop', sort: 'Latest' },
-  { label: 'Best sellers', to: '/shop', sort: 'Popularity' },
+  // These land on the dedicated curated pages the home screen already links to,
+  // not a thrice-repeated `/shop`: "New arrivals" and "Best sellers" each read as
+  // their own destination, so three footer labels pointing at one URL (which is
+  // what they used to do) no longer misleads.
+  { label: 'New arrivals', to: '/new-arrivals' },
+  { label: 'Best sellers', to: '/best-sellers' },
   { label: 'All collections', to: '/shop' },
   { label: 'Boutiques', to: '/boutiques' },
   { label: 'Coupons & offers', to: '/coupons' },

@@ -120,9 +120,13 @@ export function Results() {
    */
   const isSearchSurface = pathname.startsWith('/search') || !isBaseCollection;
   usePageMeta({
+    // `usePageMeta` appends " · MangaiMart" itself, so the title passed here must
+    // not also carry the brand — doing so printed it twice ("…saree… — MangaiMart
+    // · MangaiMart"). The base-collection title leads with its own phrase and the
+    // hook adds the tail; a search/filter title is just the collection name.
     title: isBaseCollection
       ? 'Shop All — Ethnic Wear from Verified Indian Boutiques'
-      : `${collectionTitle} — MangaiMart`,
+      : collectionTitle,
     description: isBaseCollection
       ? 'Every piece listed by verified independent boutiques on MangaiMart. Filter by category, occasion, colour, size and budget.'
       : `${results.length} ${results.length === 1 ? 'piece' : 'pieces'} matching ${collectionTitle} on MangaiMart.`,

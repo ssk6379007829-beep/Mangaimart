@@ -4,6 +4,7 @@ import { css } from '@/lib/css';
 import { usePageMeta } from '@/lib/pageMeta';
 import { ImageSlot } from '@/components/ui/ImageSlot';
 import { useCatalog } from '@/state/CatalogContext';
+import { useSignedIn, signInPath } from '@/auth/SignInGate';
 import { useBuyerOrders } from '@/hooks/useBuyerOrders';
 import { TONES, TRACK_STAGES, fmt } from '@/data/demo';
 import { deliveryEstimate, formatOrderDate, formatOrderDateTime, trackStage, type PlacedOrder } from '@/lib/orderHistory';
@@ -26,6 +27,11 @@ export function MyOrders() {
   usePageMeta({ title: 'My orders', description: 'Track every MangaiMart order from checkout to your doorstep.' });
   const navigate = useNavigate();
   const { productById } = useCatalog();
+  // Orders are owned by an account (migration 0069), so a guest's list is always
+  // empty — not because they've never ordered, but because we don't yet know who
+  // they are. The empty state below says so and offers sign-in, rather than the
+  // flat "No orders yet" that implied a returning buyer had lost their history.
+  const { signedIn, loading: authLoading } = useSignedIn();
   const { orders: allOrders, refresh, refreshing, error } = useBuyerOrders();
   const [tab, setTab] = useState<TabKey>('all');
 
@@ -131,24 +137,33 @@ export function MyOrders() {
 
   if (orders.length === 0) {
     const empty = allOrders.length === 0;
+    // A guest with an empty list is told to sign in (their history is on their
+    // account); a signed-in buyer with none is told to start shopping; a filtered
+    // tab that happens to be empty just points back to "All".
+    const guestEmpty = empty && !signedIn && !authLoading;
     return (
       <div style={css('min-height:100%;background:var(--ag-bg);padding-bottom:20px;')}>
         <div style={css('max-width:820px;margin:0 auto;')}>
           {header}
           <div style={css('display:flex;flex-direction:column;align-items:center;text-align:center;padding:60px 30px;')}>
             <div style={css('width:82px;height:82px;border-radius:50%;background:linear-gradient(145deg,var(--ag-surface-2),var(--ag-surface-2));display:flex;align-items:center;justify-content:center;box-shadow:inset 0 2px 3px rgba(255,255,255,.7),0 12px 26px -12px rgba(214,51,108,.55);')}>
-              <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:40px;color:var(--ag-crimson);")}>receipt_long</span>
+              <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:40px;color:var(--ag-crimson);")}>{guestEmpty ? 'account_circle' : 'receipt_long'}</span>
             </div>
             <div style={css("font-family:var(--ag-display);font-weight:700;font-size:26px;margin-top:20px;")}>
-              {empty ? 'No orders yet' : `Nothing ${tab === 'active' ? 'in progress' : tab}`}
+              {guestEmpty ? 'Sign in to see your orders' : empty ? 'No orders yet' : `Nothing ${tab === 'active' ? 'in progress' : tab}`}
             </div>
             <div style={css('color:var(--ag-muted);font-size:14.5px;margin-top:8px;max-width:340px;line-height:1.55;')}>
-              {empty
-                ? 'When you place an order it shows up here — track every piece from checkout to your doorstep.'
-                : 'Try another tab to see the rest of your orders.'}
+              {guestEmpty
+                ? 'Your orders are saved to your account — sign in to track every piece from checkout to your doorstep.'
+                : empty
+                  ? 'When you place an order it shows up here — track every piece from checkout to your doorstep.'
+                  : 'Try another tab to see the rest of your orders.'}
             </div>
-            <button onClick={() => (empty ? navigate('/') : setTab('all'))} style={css('margin-top:20px;background:linear-gradient(135deg,#D6336C,#B02454);color:#fff;border:none;border-radius:14px;padding:13px 24px;font-weight:800;font-size:14px;cursor:pointer;box-shadow:0 14px 30px -14px rgba(214,51,108,.8);')}>
-              {empty ? 'Start shopping' : 'Show all orders'}
+            <button
+              onClick={() => (guestEmpty ? navigate(signInPath('/orders')) : empty ? navigate('/') : setTab('all'))}
+              style={css('margin-top:20px;background:linear-gradient(135deg,#D6336C,#B02454);color:#fff;border:none;border-radius:14px;padding:13px 24px;font-weight:800;font-size:14px;cursor:pointer;box-shadow:0 14px 30px -14px rgba(214,51,108,.8);')}
+            >
+              {guestEmpty ? 'Sign in' : empty ? 'Start shopping' : 'Show all orders'}
             </button>
           </div>
         </div>
