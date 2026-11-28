@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { css } from '@/lib/css';
+import { findContactViolation, contactGuardMessage } from '@/lib/contactGuard';
 import { ImageSlot } from '@/components/ui/ImageSlot';
 import { BoutiqueLogo } from '@/components/buyer/BoutiqueLogo';
 import { useShop } from '@/state/ShopContext';
@@ -382,6 +383,10 @@ export function ChatView({
   const send = async () => {
     const text = draft.trim();
     if (!text || !live || !conversationId || !senderId || sending) return;
+    // Keep the deal on-platform: refuse a message that shares contact/payment
+    // details before it is sent. The messages trigger (0126) is the backstop.
+    const violation = findContactViolation(text);
+    if (violation) { showToast(contactGuardMessage(violation), 'error'); return; }
     setDraft('');
     setSending(true);
     try {
