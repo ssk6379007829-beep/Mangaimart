@@ -743,6 +743,11 @@ export interface Database {
            *  the per-seller delivery charge on the boutique row is separate. */
           delivery_markup_flat: number;
           delivery_markup_pct: number;
+          /** Platform markup baked into each unit's buyer-facing price
+           *  (migration 0127): round(base*(1 + product_markup_pct/100) +
+           *  product_markup_flat). Pure platform margin; seller unaffected. */
+          product_markup_flat: number;
+          product_markup_pct: number;
           updated_at: string;
           updated_by: string | null;
         };

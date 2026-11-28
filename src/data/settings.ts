@@ -70,6 +70,15 @@ export interface PlatformSettings {
    * endpoints trust the signed quote and never re-derive the buffer. */
   delivery_markup_flat: number;
   delivery_markup_pct: number;
+  /**
+   * Platform markup on product prices (migration 0127). The buyer pays
+   * round(base * (1 + product_markup_pct/100) + product_markup_flat) per unit;
+   * the extra is pure platform margin, kept on top of commission. The seller is
+   * unaffected — payout and commission stay on their LISTED price. Baked into
+   * every buyer-facing price via `buyerUnitPrice` in src/lib/productPrice.ts,
+   * mirrored server-side in api/_pricing.js. */
+  product_markup_flat: number;
+  product_markup_pct: number;
   updated_at: string | null;
 }
 
@@ -99,6 +108,10 @@ export const DEFAULT_SETTINGS: PlatformSettings = {
   // can tune it once the migration is applied.
   delivery_markup_flat: 20,
   delivery_markup_pct: 0,
+  // No product markup by default (migration 0127). A deployment without 0127
+  // lands here and prices goods at exactly the seller's price, as it always has.
+  product_markup_flat: 0,
+  product_markup_pct: 0,
   updated_at: null,
 };
 
@@ -285,6 +298,33 @@ export async function setDeliveryMarkup(flat: number, pct: number, updatedBy?: s
     return { ok: false, error: 'Could not save the delivery buffer. Please try again.' };
   }
   publish({ ...current, delivery_markup_flat: f, delivery_markup_pct: p });
+  return { ok: true };
+}
+
+/**
+ * Set the platform markup on product prices (migration 0127).
+ *
+ * Its own write, for the same reason as `setDeliveryMarkup`: it touches 0127
+ * columns, and folding them into the main settings patch would make the whole
+ * form fail to save on any database that has not run 0127. Clamped here as well
+ * as by the DB CHECK.
+ */
+export async function setProductMarkup(flat: number, pct: number, updatedBy?: string | null): Promise<SaveResult> {
+  const f = Math.min(100000, Math.max(0, Math.round(Number(flat) || 0)));
+  const p = Math.min(100, Math.max(0, Number(pct) || 0));
+  const { error } = await supabase
+    .from('platform_settings')
+    .update({ product_markup_flat: f, product_markup_pct: p, updated_at: new Date().toISOString(), updated_by: updatedBy ?? null })
+    .eq('id', 1);
+  if (error) {
+    if (isMissingTable(error)) return { ok: false, error: 'Settings are not enabled yet — apply migration 0048.' };
+    if (error.code === 'PGRST204' || /product_markup/i.test(error.message ?? '')) {
+      return { ok: false, error: 'The product buffer needs migration 0127 applied first.' };
+    }
+    console.error('setProductMarkup failed:', error.message);
+    return { ok: false, error: 'Could not save the product buffer. Please try again.' };
+  }
+  publish({ ...current, product_markup_flat: f, product_markup_pct: p });
   return { ok: true };
 }
 

@@ -4,7 +4,7 @@ import { useAsync } from '@/hooks/useAsync';
 import { useShop } from '@/state/ShopContext';
 import { useAuth } from '@/auth/AuthContext';
 import {
-  fetchSettings, saveSettings, setRazorpayAccount, setComingSoon, setMinReviewsToShow, setDeliveryMarkup,
+  fetchSettings, saveSettings, setRazorpayAccount, setComingSoon, setMinReviewsToShow, setDeliveryMarkup, setProductMarkup,
   type PlatformSettings, type RazorpayAccount,
 } from '@/data/settings';
 import { logAdminAction } from '@/data/activityLog';
@@ -82,7 +82,10 @@ export function Settings() {
     // without 0120 can still save commission and the payout terms.
     const {
       updated_at: _u, razorpay_account: _r, coming_soon: _c, min_reviews_to_show: _m,
-      delivery_markup_flat: _df, delivery_markup_pct: _dp, ...patch
+      delivery_markup_flat: _df, delivery_markup_pct: _dp,
+      // 0127 columns — their own isolated write (ProductBufferCard), excluded for
+      // the same reason as the delivery buffer above.
+      product_markup_flat: _pf, product_markup_pct: _pp, ...patch
     } = form;
     const res = await saveSettings(patch, profile?.id);
     setSaving(false);
@@ -152,6 +155,8 @@ export function Settings() {
       ))}
 
       <DeliveryBufferCard initialFlat={form.delivery_markup_flat} initialPct={form.delivery_markup_pct} />
+
+      <ProductBufferCard initialFlat={form.product_markup_flat} initialPct={form.product_markup_pct} />
 
       {/* Says where the fields that used to sit here went, so nobody spends ten
           minutes looking for the delivery fee. */}
@@ -354,6 +359,89 @@ function DeliveryBufferCard({ initialFlat, initialPct }: { initialFlat: number; 
       <div style={css(`font-size:12.5px;color:${T.muted};line-height:1.55;`)}>
         Added on top of the live courier rate the buyer pays, so the platform does not lose money on
         weight-discrepancy charges and returns. The buyer pays rate × (1 + percentage) + flat.
+      </div>
+      {field('Flat buffer', flat, setFlat, '₹')}
+      {field('Percentage buffer', pct, setPct, undefined, '%')}
+      {dirty && (
+        <div style={css('display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:14px;')}>
+          <GhostButton onClick={() => { setFlat(String(savedFlat)); setPct(String(savedPct)); }}>Cancel</GhostButton>
+          <button
+            onClick={() => void apply()}
+            disabled={busy}
+            style={css(`height:38px;padding:0 18px;border:none;border-radius:11px;background:var(--ag-crimson);color:#fff;font-weight:800;font-size:13px;font-family:inherit;cursor:${busy ? 'not-allowed' : 'pointer'};opacity:${busy ? '.6' : '1'};`)}
+          >
+            {busy ? 'Saving…' : 'Save buffer'}
+          </button>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+/**
+ * Platform markup on product prices (migration 0127).
+ *
+ * The buyer pays round(base × (1 + pct/100) + flat) per unit; the extra is pure
+ * platform margin on top of commission, and the seller is unaffected — their
+ * payout and the commission stay on their listed price. Its own write, like the
+ * delivery buffer above, so a database without 0127 still saves everything else.
+ */
+function ProductBufferCard({ initialFlat, initialPct }: { initialFlat: number; initialPct: number }) {
+  const { showToast } = useShop();
+  const { profile } = useAuth();
+  const [savedFlat, setSavedFlat] = useState(initialFlat);
+  const [savedPct, setSavedPct] = useState(initialPct);
+  const [flat, setFlat] = useState(String(initialFlat));
+  const [pct, setPct] = useState(String(initialPct));
+  const [busy, setBusy] = useState(false);
+
+  const parsedFlat = Math.min(100000, Math.max(0, Math.round(Number(flat) || 0)));
+  const parsedPct = Math.min(100, Math.max(0, Number(pct) || 0));
+  const dirty = parsedFlat !== savedFlat || parsedPct !== savedPct;
+
+  const apply = async () => {
+    setBusy(true);
+    const res = await setProductMarkup(parsedFlat, parsedPct, profile?.id);
+    setBusy(false);
+    if (!res.ok) { showToast(res.error, 'error'); return; }
+    setSavedFlat(parsedFlat); setSavedPct(parsedPct);
+    setFlat(String(parsedFlat)); setPct(String(parsedPct));
+    showToast('Product buffer saved');
+    void logAdminAction({
+      actor_id: profile?.id,
+      actor_name: profile?.full_name ?? 'Admin',
+      action: 'settings.product_markup',
+      entity_type: 'settings',
+    });
+  };
+
+  const field = (label: string, value: string, onChange: (v: string) => void, prefix?: string, suffix?: string) => (
+    <div style={css('display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-top:1px solid var(--ag-border-soft);')}>
+      <div style={css('font-weight:700;font-size:13.5px;')}>{label}</div>
+      <div className="agx-field" style={css(`display:flex;align-items:center;gap:6px;border:1.5px solid ${T.field};border-radius:11px;padding:0 12px;height:42px;background:var(--ag-surface);flex:none;`)}>
+        {prefix && <span style={css(`font-size:13px;color:${T.muted};font-weight:700;`)}>{prefix}</span>}
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
+          style={css('border:none;background:none;width:72px;text-align:right;font-size:14px;font-weight:800;font-family:inherit;font-variant-numeric:tabular-nums;color:var(--ag-ink);')}
+        />
+        {suffix && <span style={css(`font-size:12px;color:${T.muted};font-weight:700;`)}>{suffix}</span>}
+      </div>
+    </div>
+  );
+
+  return (
+    <Card>
+      <div style={css('display:flex;align-items:center;gap:10px;margin-bottom:2px;')}>
+        <Icon name="sell" size={19} color="var(--ag-crimson)" />
+        <div style={css('font-weight:800;font-size:15px;')}>Product price buffer</div>
+      </div>
+      <div style={css(`font-size:12.5px;color:${T.muted};line-height:1.55;`)}>
+        Added on top of every product’s listed price the buyer pays, as pure platform margin —
+        the seller still earns their listed price and commission is unchanged. Each unit is priced
+        base × (1 + percentage) + flat.
       </div>
       {field('Flat buffer', flat, setFlat, '₹')}
       {field('Percentage buffer', pct, setPct, undefined, '%')}
