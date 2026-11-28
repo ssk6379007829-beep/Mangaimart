@@ -14,7 +14,7 @@ import {
 } from '@/data/adminUsers';
 import { fetchMyBoutique } from '@/data/boutiques';
 import {
-  Avatar, Card, ConfirmDialog, EmptyState, Field, GhostButton, Icon, StatCard, StatusPill, T,
+  Avatar, Card, ConfirmDialog, EmptyState, Field, GhostButton, Icon, StatCard, StatusPill, STICKY_HEADER, T,
 } from '@/components/admin/kit';
 import { adminPath } from '@/lib/adminPath';
 import type { Role } from '@/types/database';
@@ -109,29 +109,30 @@ export function UserDetail() {
 
   return (
     <Shell onBack={back}>
-      {/* Identity header + the manage actions */}
-      <div style={css(T.card + 'padding:18px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;')}>
-        <Avatar name={u.full_name} tone={u.full_name.charCodeAt(0) % 8} />
-        <div style={css('flex:1;min-width:0;')}>
-          <div style={css("font-family:var(--ag-display);font-weight:700;font-size:23px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{u.full_name}</div>
-          <div style={css(`font-size:13px;color:${T.muted};margin-top:3px;`)}>{u.email ?? u.phone ?? '—'}</div>
+      {/* Sticky identity + manage actions — always in view while scrolling. */}
+      <div style={css(T.card + STICKY_HEADER)}>
+        <div style={css('display:flex;align-items:center;gap:14px;flex-wrap:wrap;')}>
+          <Avatar name={u.full_name} tone={u.full_name.charCodeAt(0) % 8} />
+          <div style={css('flex:1;min-width:0;')}>
+            <div style={css("font-family:var(--ag-display);font-weight:700;font-size:22px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{u.full_name}</div>
+            <div style={css(`font-size:13px;color:${T.muted};margin-top:2px;`)}>{u.email ?? u.phone ?? '—'}</div>
+          </div>
+          <span style={css(`font-size:11px;font-weight:800;padding:5px 11px;border-radius:9px;background:${ROLE_PILL[u.role].bg};color:${ROLE_PILL[u.role].fg};`)}>{u.role}</span>
+          <StatusPill status={deleted ? 'rejected' : u.status} label={deleted ? 'Deleted' : undefined} />
         </div>
-        <span style={css(`font-size:11px;font-weight:800;padding:5px 11px;border-radius:9px;background:${ROLE_PILL[u.role].bg};color:${ROLE_PILL[u.role].fg};`)}>{u.role}</span>
-        <StatusPill status={deleted ? 'rejected' : u.status} label={deleted ? 'Deleted' : undefined} />
-      </div>
-
-      <div style={css('display:flex;gap:9px;flex-wrap:wrap;')}>
-        {deleted ? (
-          <GhostButton tone="primary" icon="restore_from_trash" onClick={() => { if (!busy) void doRestore(); }}>Restore account</GhostButton>
-        ) : (
-          <>
-            <GhostButton icon="edit" onClick={() => setEditing((v) => !v)}>{editing ? 'Close editor' : 'Edit details'}</GhostButton>
-            {showUnblock && <GhostButton icon="lock_open" onClick={() => { if (!busy) void doUnblock(); }}>Unblock</GhostButton>}
-            {showBlock && <GhostButton icon="block" onClick={() => { setReason(''); setDialog('block'); }}>Block</GhostButton>}
-            {canResetMfa && <GhostButton icon="lock_reset" onClick={() => setDialog('resetmfa')}>Reset 2FA</GhostButton>}
-            {canDelete && <GhostButton tone="danger" icon="delete" onClick={() => { setReason(''); setDialog('delete'); }}>Delete</GhostButton>}
-          </>
-        )}
+        <div style={css('display:flex;gap:9px;flex-wrap:wrap;')}>
+          {deleted ? (
+            <GhostButton tone="primary" icon="restore_from_trash" onClick={() => { if (!busy) void doRestore(); }}>Restore account</GhostButton>
+          ) : (
+            <>
+              <GhostButton icon="edit" onClick={() => setEditing((v) => !v)}>{editing ? 'Close editor' : 'Edit details'}</GhostButton>
+              {showUnblock && <GhostButton icon="lock_open" onClick={() => { if (!busy) void doUnblock(); }}>Unblock</GhostButton>}
+              {showBlock && <GhostButton icon="block" onClick={() => { setReason(''); setDialog('block'); }}>Block</GhostButton>}
+              {canResetMfa && <GhostButton icon="lock_reset" onClick={() => setDialog('resetmfa')}>Reset 2FA</GhostButton>}
+              {canDelete && <GhostButton tone="danger" icon="delete" onClick={() => { setReason(''); setDialog('delete'); }}>Delete</GhostButton>}
+            </>
+          )}
+        </div>
       </div>
 
       {editing && !deleted && (

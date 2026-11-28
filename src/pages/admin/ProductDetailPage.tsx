@@ -15,7 +15,7 @@ import { fetchProduct } from '@/data/products';
 import { fetchReviews } from '@/data/reviews';
 import { TONES } from '@/data/demo';
 import {
-  Card, ConfirmDialog, EmptyState, Field, GhostButton, Icon, StatusPill, T,
+  Card, ConfirmDialog, EmptyState, Field, GhostButton, Icon, StatusPill, STICKY_HEADER, T,
 } from '@/components/admin/kit';
 import { adminPath } from '@/lib/adminPath';
 
@@ -117,40 +117,40 @@ export function ProductDetailPage() {
 
   return (
     <Shell onBack={back}>
-      {/* Header */}
-      <div style={css(T.card + 'padding:18px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;')}>
-        <div style={css(`width:64px;height:64px;flex:none;border-radius:14px;overflow:hidden;background:${TONES[p.tone % TONES.length]};`)}>
-          {p.image_url && <img src={p.image_url} alt="" style={css('width:100%;height:100%;object-fit:cover;')} />}
-        </div>
-        <div style={css('flex:1;min-width:0;')}>
-          <div style={css("font-family:var(--ag-display);font-weight:700;font-size:22px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{p.title}</div>
-          <div style={css(`font-size:13px;color:${T.muted};margin-top:3px;`)}>
-            {rich?.boutique_id
-              ? <button onClick={() => navigate(adminPath(`boutiques/${rich.boutique_id}`))} style={css('background:none;border:none;padding:0;cursor:pointer;font:inherit;color:var(--ag-crimson);font-weight:700;text-decoration:underline;text-underline-offset:2px;')}>{p.boutique?.name ?? '—'}</button>
-              : (p.boutique?.name ?? '—')}
-            {' · '}{p.category || '—'}
+      {/* Sticky header + moderation actions — always in view while scrolling. */}
+      <div style={css(T.card + STICKY_HEADER)}>
+        <div style={css('display:flex;align-items:center;gap:14px;flex-wrap:wrap;')}>
+          <div style={css(`width:56px;height:56px;flex:none;border-radius:13px;overflow:hidden;background:${TONES[p.tone % TONES.length]};`)}>
+            {p.image_url && <img src={p.image_url} alt="" style={css('width:100%;height:100%;object-fit:cover;')} />}
           </div>
+          <div style={css('flex:1;min-width:0;')}>
+            <div style={css("font-family:var(--ag-display);font-weight:700;font-size:21px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{p.title}</div>
+            <div style={css(`font-size:13px;color:${T.muted};margin-top:2px;`)}>
+              {rich?.boutique_id
+                ? <button onClick={() => navigate(adminPath(`boutiques/${rich.boutique_id}`))} style={css('background:none;border:none;padding:0;cursor:pointer;font:inherit;color:var(--ag-crimson);font-weight:700;text-decoration:underline;text-underline-offset:2px;')}>{p.boutique?.name ?? '—'}</button>
+                : (p.boutique?.name ?? '—')}
+              {' · '}{p.category || '—'}
+            </div>
+          </div>
+          <div style={css('text-align:right;')}>
+            <div style={css('font-weight:800;font-size:17px;font-variant-numeric:tabular-nums;')}>{fmtInr(p.price)}</div>
+            <div style={css(`font-size:12px;color:${p.stock <= 5 ? 'var(--ag-danger-text)' : T.muted};`)}>stock {p.stock}</div>
+          </div>
+          <StatusPill status={deleted ? 'rejected' : p.status} label={deleted ? 'Deleted' : undefined} />
         </div>
-        <div style={css('text-align:right;')}>
-          <div style={css('font-weight:800;font-size:18px;font-variant-numeric:tabular-nums;')}>{fmtInr(p.price)}</div>
-          <div style={css(`font-size:12px;color:${p.stock <= 5 ? 'var(--ag-danger-text)' : T.muted};`)}>stock {p.stock}</div>
+        <div style={css('display:flex;gap:9px;flex-wrap:wrap;')}>
+          {deleted ? (
+            <GhostButton tone="primary" icon="restore_from_trash" onClick={() => void doRestore()}>Restore product</GhostButton>
+          ) : (
+            <>
+              <GhostButton icon="edit" onClick={() => setEditing((v) => !v)}>{editing ? 'Close editor' : 'Edit'}</GhostButton>
+              {p.status !== 'active' && <GhostButton icon="check" onClick={() => void setStatus('active')}>Approve</GhostButton>}
+              {p.status !== 'hidden' && <GhostButton icon="visibility_off" onClick={() => void setStatus('hidden')}>Hide</GhostButton>}
+              {p.status !== 'rejected' && <GhostButton icon="block" onClick={() => { setReason(''); setDialog('reject'); }}>Reject</GhostButton>}
+              <GhostButton tone="danger" icon="delete" onClick={() => setDialog('delete')}>Delete</GhostButton>
+            </>
+          )}
         </div>
-        <StatusPill status={deleted ? 'rejected' : p.status} label={deleted ? 'Deleted' : undefined} />
-      </div>
-
-      {/* Moderation actions */}
-      <div style={css('display:flex;gap:9px;flex-wrap:wrap;')}>
-        {deleted ? (
-          <GhostButton tone="primary" icon="restore_from_trash" onClick={() => void doRestore()}>Restore product</GhostButton>
-        ) : (
-          <>
-            <GhostButton icon="edit" onClick={() => setEditing((v) => !v)}>{editing ? 'Close editor' : 'Edit'}</GhostButton>
-            {p.status !== 'active' && <GhostButton icon="check" onClick={() => void setStatus('active')}>Approve</GhostButton>}
-            {p.status !== 'hidden' && <GhostButton icon="visibility_off" onClick={() => void setStatus('hidden')}>Hide</GhostButton>}
-            {p.status !== 'rejected' && <GhostButton icon="block" onClick={() => { setReason(''); setDialog('reject'); }}>Reject</GhostButton>}
-            <GhostButton tone="danger" icon="delete" onClick={() => setDialog('delete')}>Delete</GhostButton>
-          </>
-        )}
       </div>
 
       {editing && !deleted && <EditCard product={p} onSaved={(v) => { patch(v); setEditing(false); }} log={log} />}

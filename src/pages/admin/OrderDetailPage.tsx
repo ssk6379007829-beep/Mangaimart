@@ -9,7 +9,7 @@ import { logAdminAction } from '@/data/activityLog';
 import { fetchOrder, updateOrderStatus } from '@/data/orders';
 import { refundOrder, clearLegacyRefundFlag, buyerPaid } from '@/data/admin';
 import type { OrderWithDetails } from '@/data/types';
-import { Avatar, GhostButton, Icon, StatusPill, T } from '@/components/admin/kit';
+import { Avatar, GhostButton, Icon, StatusPill, STICKY_HEADER, T } from '@/components/admin/kit';
 import { adminPath } from '@/lib/adminPath';
 import { OrderDetail } from '@/pages/admin/OrdersAdmin';
 
@@ -90,40 +90,41 @@ export function OrderDetailPage() {
 
   return (
     <Shell onBack={back}>
-      <div style={css(T.card + 'padding:18px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;')}>
-        <Avatar name={name} tone={name.charCodeAt(0) % 8} />
-        <div style={css('flex:1;min-width:0;')}>
-          <div style={css("font-family:var(--ag-display);font-weight:700;font-size:22px;line-height:1.15;")}>{order.order_number}</div>
-          <div style={css(`font-size:13px;color:${T.muted};margin-top:3px;`)}>
-            {order.buyer_id
-              ? <CrossLink onClick={() => navigate(adminPath(`users/${order.buyer_id}`))}>{name}</CrossLink>
-              : name}
-            {' · '}
-            {order.boutique_id
-              ? <CrossLink onClick={() => navigate(adminPath(`boutiques/${order.boutique_id}`))}>{order.boutique?.name ?? '—'}</CrossLink>
-              : (order.boutique?.name ?? '—')}
-            {' · '}{new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+      <div style={css(T.card + STICKY_HEADER)}>
+        <div style={css('display:flex;align-items:center;gap:14px;flex-wrap:wrap;')}>
+          <Avatar name={name} tone={name.charCodeAt(0) % 8} />
+          <div style={css('flex:1;min-width:0;')}>
+            <div style={css("font-family:var(--ag-display);font-weight:700;font-size:22px;line-height:1.15;")}>{order.order_number}</div>
+            <div style={css(`font-size:13px;color:${T.muted};margin-top:2px;`)}>
+              {order.buyer_id
+                ? <CrossLink onClick={() => navigate(adminPath(`users/${order.buyer_id}`))}>{name}</CrossLink>
+                : name}
+              {' · '}
+              {order.boutique_id
+                ? <CrossLink onClick={() => navigate(adminPath(`boutiques/${order.boutique_id}`))}>{order.boutique?.name ?? '—'}</CrossLink>
+                : (order.boutique?.name ?? '—')}
+              {' · '}{new Date(order.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            </div>
           </div>
+          <StatusPill status={order.status} />
+          {order.refunded && <StatusPill status="refunded" label="Refunded" />}
         </div>
-        <StatusPill status={order.status} />
-        {order.refunded && <StatusPill status="refunded" label="Refunded" />}
+        {canAct && (
+          <div style={css('display:flex;gap:9px;flex-wrap:wrap;')}>
+            {order.status !== 'rejected' && (
+              <GhostButton icon="cancel" tone="danger" onClick={() => void setStatusFor('rejected')}>Cancel order</GhostButton>
+            )}
+            {!order.refunded && (
+              <GhostButton icon="currency_rupee" tone="primary" disabled={busyRefund} onClick={() => void refund()}>
+                {busyRefund ? 'Refunding…' : 'Refund buyer'}
+              </GhostButton>
+            )}
+            {order.refunded && !order.refund_id && (
+              <GhostButton icon="undo" disabled={busyRefund} onClick={() => void clearFlag()}>Clear refund flag</GhostButton>
+            )}
+          </div>
+        )}
       </div>
-
-      {canAct && (
-        <div style={css('display:flex;gap:9px;flex-wrap:wrap;')}>
-          {order.status !== 'rejected' && (
-            <GhostButton icon="cancel" tone="danger" onClick={() => void setStatusFor('rejected')}>Cancel order</GhostButton>
-          )}
-          {!order.refunded && (
-            <GhostButton icon="currency_rupee" tone="primary" disabled={busyRefund} onClick={() => void refund()}>
-              {busyRefund ? 'Refunding…' : 'Refund buyer'}
-            </GhostButton>
-          )}
-          {order.refunded && !order.refund_id && (
-            <GhostButton icon="undo" disabled={busyRefund} onClick={() => void clearFlag()}>Clear refund flag</GhostButton>
-          )}
-        </div>
-      )}
 
       <OrderDetail o={order} onSetStatus={(s) => void setStatusFor(s)} />
     </Shell>

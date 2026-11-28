@@ -18,7 +18,7 @@ import { fetchReturnsForBoutique } from '@/data/returns';
 import { fetchActivityForEntity } from '@/data/activityLog';
 import { fetchPayoutSummaries, fetchBoutiquePayouts, settlePayout, type PayoutSummary } from '@/data/payouts';
 import { BOUTIQUE_STATUS_LABEL, type BoutiqueStatus } from '@/data/types';
-import { Avatar, Card, ConfirmDialog, EmptyState, Field, GhostButton, Icon, IconButton, StatCard, StatusPill, T, Toggle } from '@/components/admin/kit';
+import { Avatar, Card, ConfirmDialog, EmptyState, Field, GhostButton, Icon, IconButton, StatCard, StatusPill, STICKY_HEADER, T, Toggle } from '@/components/admin/kit';
 import { adminPath } from '@/lib/adminPath';
 import { BoutiqueReviewPanel } from '@/components/admin/BoutiqueReviewPanel';
 
@@ -56,6 +56,12 @@ export function BoutiqueDetail() {
   // overview and application.
   const canMoney = canSeePlatformMoney(profile?.role);
   const [tab, setTab] = useState<TabKey>('overview');
+  // The status decision, surfaced in the sticky header so it is reachable from
+  // any tab. Reject / Needs-changes open a note dialog (the seller is quoted it);
+  // Approve / Suspend act at once.
+  const [asking, setAsking] = useState<'rejected' | 'changes_requested' | null>(null);
+  const [note, setNote] = useState('');
+  const [busyDecision, setBusyDecision] = useState(false);
 
   const tabs = useMemo(() => ([
     { key: 'overview' as const, label: 'Overview' },
@@ -79,14 +85,24 @@ export function BoutiqueDetail() {
 
   const back = () => navigate(adminPath('boutiques'));
 
-  const decide = async (b: AdminBoutiqueRow, status: BoutiqueStatus, note?: string) => {
+  const decide = async (b: AdminBoutiqueRow, status: BoutiqueStatus, noteText?: string) => {
     try {
-      await setBoutiqueStatus(b.id, status, note);
+      await setBoutiqueStatus(b.id, status, noteText);
       showToast(`${b.name} — ${BOUTIQUE_STATUS_LABEL[status].toLowerCase()}`);
       reload();
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Update failed', 'error');
     }
+  };
+
+  const submitNote = async () => {
+    if (!asking || !boutique) return;
+    if (note.trim().length < 5) { showToast('Add a short note — the seller sees it', 'warning'); return; }
+    setBusyDecision(true);
+    await decide(boutique, asking, note.trim());
+    setBusyDecision(false);
+    setAsking(null);
+    setNote('');
   };
 
   if (loading && !boutique) {
@@ -116,20 +132,33 @@ export function BoutiqueDetail() {
     <div style={css('display:flex;flex-direction:column;gap:16px;')}>
       <BackLink onClick={back} />
 
-      {/* Identity header */}
-      <div style={css(T.card + 'padding:18px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;')}>
-        <div style={css(`width:58px;height:58px;flex:none;border-radius:16px;overflow:hidden;background:${TONES[boutique.tone ?? 0]};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:24px;color:rgba(42,26,32,.5);`)}>
-          {boutique.logo_url ? <img src={boutique.logo_url} alt="" style={css('width:100%;height:100%;object-fit:cover;')} /> : boutique.name.charAt(0)}
-        </div>
-        <div style={css('flex:1;min-width:0;')}>
-          <div style={css("font-family:var(--ag-display);font-weight:700;font-size:24px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{boutique.name}</div>
-          <div style={css(`font-size:13px;color:${T.muted};margin-top:3px;`)}>
-            {owner}{boutique.city ? ` · ${boutique.city}` : ''}{boutique.category ? ` · ${boutique.category}` : ''}
+      {/* Sticky identity + the status decision — reachable from any tab. */}
+      <div style={css(T.card + STICKY_HEADER)}>
+        <div style={css('display:flex;align-items:center;gap:14px;flex-wrap:wrap;')}>
+          <div style={css(`width:52px;height:52px;flex:none;border-radius:15px;overflow:hidden;background:${TONES[boutique.tone ?? 0]};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:22px;color:rgba(42,26,32,.5);`)}>
+            {boutique.logo_url ? <img src={boutique.logo_url} alt="" style={css('width:100%;height:100%;object-fit:cover;')} /> : boutique.name.charAt(0)}
           </div>
+          <div style={css('flex:1;min-width:0;')}>
+            <div style={css("font-family:var(--ag-display);font-weight:700;font-size:22px;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")}>{boutique.name}</div>
+            <div style={css(`font-size:13px;color:${T.muted};margin-top:2px;`)}>
+              {owner}{boutique.city ? ` · ${boutique.city}` : ''}{boutique.category ? ` · ${boutique.category}` : ''}
+            </div>
+          </div>
+          <span style={css(`font-size:11.5px;font-weight:800;padding:5px 12px;border-radius:9px;flex:none;background:${chip.bg};color:${chip.fg};`)}>
+            {BOUTIQUE_STATUS_LABEL[boutique.status]}
+          </span>
         </div>
-        <span style={css(`font-size:11.5px;font-weight:800;padding:5px 12px;border-radius:9px;flex:none;background:${chip.bg};color:${chip.fg};`)}>
-          {BOUTIQUE_STATUS_LABEL[boutique.status]}
-        </span>
+        <div style={css('display:flex;gap:9px;flex-wrap:wrap;')}>
+          <GhostButton tone="danger" icon="block" onClick={() => { setNote(''); setAsking('rejected'); }}>Reject</GhostButton>
+          {boutique.status === 'approved' ? (
+            <GhostButton icon="pause" onClick={() => void decide(boutique, 'pending')}>Suspend</GhostButton>
+          ) : (
+            <>
+              <GhostButton icon="edit_note" onClick={() => { setNote(''); setAsking('changes_requested'); }}>Needs changes</GhostButton>
+              <GhostButton tone="primary" icon="check" onClick={() => void decide(boutique, 'approved')}>Approve</GhostButton>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -202,8 +231,31 @@ export function BoutiqueDetail() {
           all={all}
           seedCount={productCount}
           onDecide={decide}
+          showDecision={false}
         />
       )}
+
+      {/* The note the seller is quoted, for Reject / Needs-changes. */}
+      <ConfirmDialog
+        open={asking !== null}
+        title={asking === 'rejected' ? 'Reject this boutique?' : 'Send it back for changes?'}
+        message="The seller sees this word for word on their verification screen."
+        confirmLabel={asking === 'rejected' ? 'Reject' : 'Send correction list'}
+        danger={asking === 'rejected'}
+        busy={busyDecision}
+        onConfirm={() => void submitNote()}
+        onCancel={() => { setAsking(null); setNote(''); }}
+      >
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder={asking === 'rejected'
+            ? 'We could not verify the business registration provided…'
+            : '1. The shop address does not match the map link\n2. Upload a clearer boutique logo'}
+          rows={4}
+          style={css('width:100%;margin-top:14px;border:1.5px solid var(--ag-border);background:var(--ag-surface);border-radius:12px;padding:10px 12px;font-size:13.5px;font-family:inherit;color:var(--ag-ink);box-sizing:border-box;resize:vertical;line-height:1.5;')}
+        />
+      </ConfirmDialog>
     </div>
   );
 }

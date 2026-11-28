@@ -121,13 +121,16 @@ function Compare({ value, against, agrees, note }: {
  * page handles the toast/reload/navigation afterwards.
  */
 export function BoutiqueReviewPanel({
-  boutique, all, seedArea, seedCount, onDecide,
+  boutique, all, seedArea, seedCount, onDecide, showDecision = true,
 }: {
   boutique: AdminBoutiqueRow;
   all: readonly AdminBoutiqueRow[];
   seedArea?: PincodeArea | null;
   seedCount?: number | null;
   onDecide: (b: AdminBoutiqueRow, status: BoutiqueStatus, note?: string) => void;
+  /** When false, the decision buttons are hidden — the page shows them in its
+   *  sticky header instead, so the application tab is read-only. */
+  showDecision?: boolean;
 }) {
   const [priv, setPriv] = useState<BoutiquePrivate | null>(null);
   const [note, setNote] = useState('');
@@ -350,8 +353,8 @@ export function BoutiqueReviewPanel({
         </div>
       ))}
 
-      {/* Decision --------------------------------------------------- */}
-      {asking ? (
+      {/* Decision — hidden when the page hosts it in its sticky header. */}
+      {showDecision && (asking ? (
         <div style={css('background:var(--ag-surface);border:1px solid var(--ag-surface-3);border-radius:18px;padding:16px 17px;')}>
           <div style={css("font-weight:700;font-size:16px;")}>
             {asking === 'rejected' ? 'Reason for rejection' : 'What needs changing?'}
@@ -424,7 +427,7 @@ export function BoutiqueReviewPanel({
             )}
           </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }

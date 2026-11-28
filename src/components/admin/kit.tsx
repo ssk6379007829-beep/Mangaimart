@@ -8,6 +8,15 @@ import { Skeleton } from '@/components/ui/Skeleton';
  * inline-styled via the `css()` helper to match the rest of the codebase.
  */
 
+/**
+ * The sticky top block on a full detail page (boutique / user / order /
+ * product): identity on top, action buttons under it, pinned so the buttons
+ * stay in view while the record scrolls. Combined with `T.card`. Opaque so
+ * content scrolls invisibly beneath it; `z-index:5` sits under the console's own
+ * sticky header (`z-index:6`).
+ */
+export const STICKY_HEADER = 'padding:14px 20px;position:sticky;top:0;z-index:5;display:flex;flex-direction:column;gap:12px;';
+
 export const T = {
   card: 'background:var(--ag-surface);border-radius:18px;box-shadow:0 12px 30px -24px rgba(107,20,54,.6);',
   head: 'var(--ag-surface-2)',
