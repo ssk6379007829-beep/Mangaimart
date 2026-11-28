@@ -106,6 +106,25 @@ export function SignIn() {
       }
       onBack={() => navigate(gated ? '/cart' : '/')}
     >
+      {/*
+        Google first, matching the buyer account popup (AccountSheet): the
+        one-tap option sits above the email/password form, then an "or" divider.
+        Google only — there was an "Apple" button beside it that did nothing but
+        toast "coming soon"; sitting next to a working provider at the same size
+        and weight it read as a real option. Apple sign-in needs a paid developer
+        account and a Services ID in Supabase; until that exists the honest UI is
+        not to offer it.
+      */}
+      <div style={css('display:flex;gap:12px;')}>
+        <button type="button" onClick={handleGoogle} style={css('flex:1;height:52px;border:1.5px solid var(--ag-border);background:var(--ag-surface);border-radius:14px;font-weight:800;cursor:pointer;color:var(--ag-ink);display:flex;align-items:center;justify-content:center;gap:10px;')}>
+          <GoogleIcon size={20} />Continue with Google
+        </button>
+      </div>
+
+      <div style={css('display:flex;align-items:center;gap:12px;color:var(--ag-muted-soft);font-size:13px;')}>
+        <div style={css('flex:1;height:1px;background:var(--ag-border);')} />or<div style={css('flex:1;height:1px;background:var(--ag-border);')} />
+      </div>
+
       {/* A real form, so Enter submits and password managers recognise the pair. */}
       <form onSubmit={handleSignIn} style={css('display:flex;flex-direction:column;gap:15px;')}>
       <label style={css('font-size:13px;font-weight:700;color:var(--ag-label);')}>
@@ -139,23 +158,6 @@ export function SignIn() {
         <span aria-hidden="true" style={css("font-family:'Material Symbols Outlined';font-size:20px;")}>arrow_forward</span>
       </button>
       </form>
-
-      <div style={css('display:flex;align-items:center;gap:12px;color:var(--ag-muted-soft);font-size:13px;')}>
-        <div style={css('flex:1;height:1px;background:var(--ag-border);')} />or continue with<div style={css('flex:1;height:1px;background:var(--ag-border);')} />
-      </div>
-      {/*
-        Google only. There was an "Apple" button beside it that did nothing but
-        toast "coming soon" — sitting next to a working provider, at the same
-        size and weight, it read as a real option, and a buyer who owns an
-        iPhone would reasonably have tapped it first. Apple sign-in needs a paid
-        developer account and a Services ID configured in Supabase; until that
-        exists the honest UI is not to offer it.
-      */}
-      <div style={css('display:flex;gap:12px;')}>
-        <button onClick={handleGoogle} style={css('flex:1;height:50px;border:1.5px solid var(--ag-border);background:var(--ag-surface);border-radius:14px;font-weight:700;cursor:pointer;color:var(--ag-ink);display:flex;align-items:center;justify-content:center;gap:8px;')}>
-          <GoogleIcon size={19} />Google
-        </button>
-      </div>
 
       <ConsentNotice />
 
