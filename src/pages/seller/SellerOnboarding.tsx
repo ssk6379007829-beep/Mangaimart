@@ -406,8 +406,19 @@ export function SellerOnboarding() {
         if (cancelled) return;
 
         setBoutique(row);
+        // The draft was auto-named "<owner>'s Boutique" (or "My Boutique") just
+        // so lists have something to show before the shop is named — see
+        // createMyBoutique above. We must NOT pre-fill that placeholder into the
+        // name field: a field that already looks filled is one the seller leaves
+        // alone, which is exactly how generic "X's Boutique" names become
+        // permanent. While the shop is still being set up, blank it so they have
+        // to type their own name (validateStep requires ≥2 chars). A shop that
+        // has already finished onboarding keeps whatever name it saved.
+        const autoName = row.owner_name ? `${row.owner_name}'s Boutique` : 'My Boutique';
+        const looksAutoNamed = !row.name || row.name === autoName || row.name === 'My Boutique';
+        const prefillName = !row.onboarding_complete && looksAutoNamed ? '' : (row.name ?? '');
         setForm({
-          name: row.name ?? '',
+          name: prefillName,
           ownerName: row.owner_name || resolveDisplayName(profile, session),
           description: row.description ?? '',
           logoUrl: row.logo_url ?? '',
